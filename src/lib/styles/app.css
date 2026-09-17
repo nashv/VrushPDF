@@ -1,0 +1,248 @@
+/* Design tokens and global chrome. Light and dark share one token set. */
+
+:root {
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+
+  --bg: #f4f5f7;
+  --bg-raised: #ffffff;
+  --bg-sunken: #e6e8ec;
+  --bg-hover: #eceef2;
+  --bg-active: #e0e3e9;
+
+  --text: #16181d;
+  --text-muted: #6b7280;
+  --text-faint: #9aa1ac;
+
+  --border: #d8dbe2;
+  --border-strong: #b9bec9;
+
+  --accent: #2563eb;
+  --accent-text: #ffffff;
+  --accent-soft: #dbeafe;
+
+  --danger: #dc2626;
+  --danger-soft: #fee2e2;
+
+  --shadow-1: 0 1px 2px rgb(16 24 40 / 8%);
+  --shadow-2: 0 4px 12px rgb(16 24 40 / 12%);
+  --shadow-3: 0 12px 32px rgb(16 24 40 / 18%);
+
+  --radius: 6px;
+  --radius-lg: 10px;
+
+  --toolbar-h: 48px;
+  --sidebar-w: 260px;
+  --inspector-w: 272px;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17181c;
+    --bg-raised: #21232a;
+    --bg-sunken: #0f1013;
+    --bg-hover: #2a2d36;
+    --bg-active: #333742;
+
+    --text: #e9eaee;
+    --text-muted: #9aa1ac;
+    --text-faint: #6b7280;
+
+    --border: #333742;
+    --border-strong: #464c5a;
+
+    --accent: #3b82f6;
+    --accent-text: #ffffff;
+    --accent-soft: #1e3a8a;
+
+    --danger: #f87171;
+    --danger-soft: #451a1a;
+
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 40%);
+    --shadow-2: 0 4px 12px rgb(0 0 0 / 50%);
+    --shadow-3: 0 12px 32px rgb(0 0 0 / 60%);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  /* A desktop window should not rubber-band or text-select like a web page. */
+  overscroll-behavior: none;
+  user-select: none;
+  cursor: default;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+/* ------------------------------------------------------------- primitives */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 9px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.btn:active:not(:disabled) {
+  background: var(--bg-active);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.btn.square {
+  width: 28px;
+  padding: 0;
+}
+
+.btn.outlined {
+  border-color: var(--border);
+  background: var(--bg-raised);
+}
+
+.btn.primary {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.btn.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.btn.selected {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.btn.selected:hover {
+  background: var(--accent);
+  filter: brightness(1.08);
+}
+
+.btn.danger {
+  color: var(--danger);
+}
+
+.btn.danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+}
+
+.divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 8px 4px;
+  background: var(--border);
+}
+
+.field {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  user-select: text;
+}
+
+.field:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+textarea.field {
+  height: auto;
+  padding: 6px 8px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.scroll {
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+/* ------------------------------------------------------------ pdf.js layers */
+
+/*
+ * pdf.js positions text-layer spans against `--total-scale-factor`; the page
+ * component sets it. The spans are transparent and exist only for selection,
+ * so the selection highlight is the one visible part.
+ */
+.textLayer {
+  user-select: text;
+  cursor: text;
+}
+
+.textLayer ::selection {
+  background: rgb(37 99 235 / 30%);
+}
+
+/* Markup tools read the selection, so the layer must stay hit-testable. */
+.page-stack.tool-passthrough .textLayer {
+  pointer-events: auto;
+}
+
+.page-stack:not(.tool-passthrough) .textLayer {
+  pointer-events: none;
+  user-select: none;
+}

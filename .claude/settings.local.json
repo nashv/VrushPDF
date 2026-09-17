@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__rustrover__list_directory_tree",
+      "Bash(npm view *)"
+    ]
+  }
+}

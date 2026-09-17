@@ -1,0 +1,38 @@
+{
+  "name": "pdfeditor",
+  "version": "0.1.0",
+  "description": "",
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "prepare": "node scripts/copy-pdfjs-assets.mjs && (svelte-kit sync || echo '')",
+    "pdfjs-assets": "node scripts/copy-pdfjs-assets.mjs",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "verify:roundtrip": "tsx scripts/verify-roundtrip.ts",
+    "tauri": "tauri",
+    "verify:ui": "tsx scripts/verify-ui.ts",
+    "fixture:pdf": "tsx scripts/fixtures/make-test-pdf.ts"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2.7.3",
+    "@tauri-apps/plugin-opener": "^2",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.3.289"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-static": "^3.0.10",
+    "@sveltejs/kit": "^2.65.1",
+    "@sveltejs/vite-plugin-svelte": "^7.1.2",
+    "@tauri-apps/cli": "^2",
+    "svelte": "^5.56.3",
+    "svelte-check": "^4.6.0",
+    "tsx": "^4.23.13",
+    "typescript": "~6.0.3",
+    "vite": "^8.0.16"
+  }
+}
