@@ -45,11 +45,15 @@ jobs:
         env:
           WANT: ${{ github.event_name == 'workflow_dispatch' && inputs.platforms || 'all' }}
         run: |
+          # Both macOS targets build on the Apple Silicon runner: Xcode there
+          # cross-compiles to x86_64 quite happily, and the toolchain step
+          # installs both Rust targets. `macos-13` was retired by GitHub — a job
+          # asking for it simply queues forever.
           all='[
-            {"platform":"macos-latest","args":"--target aarch64-apple-darwin"},
-            {"platform":"macos-13","args":"--target x86_64-apple-darwin"},
-            {"platform":"windows-latest","args":""},
-            {"platform":"ubuntu-22.04","args":""}
+            {"platform":"macos-latest","args":"--target aarch64-apple-darwin","label":"macos-arm64"},
+            {"platform":"macos-latest","args":"--target x86_64-apple-darwin","label":"macos-x64"},
+            {"platform":"windows-latest","args":"","label":"windows"},
+            {"platform":"ubuntu-22.04","args":"","label":"linux"}
           ]'
           case "$WANT" in
             no-macos) filter='select(.platform | startswith("macos") | not)' ;;
@@ -160,6 +164,6 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v7
         with:
-          name: installers-${{ matrix.platform }}
+          name: installers-${{ matrix.label }}
           path: dist-artifacts/
           if-no-files-found: error
