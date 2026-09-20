@@ -15,12 +15,32 @@ on:
   push:
     tags:
       - "v*"
-  # Build the same matrix without publishing anything; the installers come back
-  # as workflow artifacts.
+  # Build without publishing anything; the installers come back as workflow
+  # artifacts. `platforms` narrows the matrix while iterating — this repo is
+  # private, so a full run costs real money at 10x for macOS and 2x for Windows.
   workflow_dispatch:
+    inputs:
+      platforms:
+        description: Which platforms to build
+        type: choice
+        default: all
+        options:
+          - all
+          - no-macos
+          - macos
+          - windows
+          - linux
 
 jobs:
   build:
+    if: >-
+      github.event_name != 'workflow_dispatch'
+      || inputs.platforms == 'all'
+      || (inputs.platforms == 'no-macos' && !startsWith(matrix.platform, 'macos'))
+      || (inputs.platforms == 'macos' && startsWith(matrix.platform, 'macos'))
+      || (inputs.platforms == 'windows' && startsWith(matrix.platform, 'windows'))
+      || (inputs.platforms == 'linux' && startsWith(matrix.platform, 'ubuntu'))
+
     permissions:
       # tauri-action needs this to create the release. If it fails with
       # "Resource not accessible by integration", enable read/write under
