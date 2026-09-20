@@ -32,14 +32,36 @@ on:
           - linux
 
 jobs:
+  # Decide which platforms to build. This has to be its own job: the `matrix`
+  # context does not exist in a job's own `if`, so the matrix has to arrive
+  # already filtered.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - id: pick
+        shell: bash
+        env:
+          WANT: ${{ github.event_name == 'workflow_dispatch' && inputs.platforms || 'all' }}
+        run: |
+          all='[
+            {"platform":"macos-latest","args":"--target aarch64-apple-darwin"},
+            {"platform":"macos-13","args":"--target x86_64-apple-darwin"},
+            {"platform":"windows-latest","args":""},
+            {"platform":"ubuntu-22.04","args":""}
+          ]'
+          case "$WANT" in
+            no-macos) filter='select(.platform | startswith("macos") | not)' ;;
+            macos)    filter='select(.platform | startswith("macos"))' ;;
+            windows)  filter='select(.platform | startswith("windows"))' ;;
+            linux)    filter='select(.platform | startswith("ubuntu"))' ;;
+            *)        filter='.' ;;
+          esac
+          echo "matrix=$(jq -c "[.[] | $filter]" <<<"$all")" >> "$GITHUB_OUTPUT"
+
   build:
-    if: >-
-      github.event_name != 'workflow_dispatch'
-      || inputs.platforms == 'all'
-      || (inputs.platforms == 'no-macos' && !startsWith(matrix.platform, 'macos'))
-      || (inputs.platforms == 'macos' && startsWith(matrix.platform, 'macos'))
-      || (inputs.platforms == 'windows' && startsWith(matrix.platform, 'windows'))
-      || (inputs.platforms == 'linux' && startsWith(matrix.platform, 'ubuntu'))
+    needs: plan
 
     permissions:
       # tauri-action needs this to create the release. If it fails with
@@ -51,20 +73,10 @@ jobs:
       # One platform failing shouldn't throw away the others' build time.
       fail-fast: false
       matrix:
-        include:
-          - platform: macos-latest # Apple Silicon
-            args: "--target aarch64-apple-darwin"
-          - platform: macos-13 # Intel
-            args: "--target x86_64-apple-darwin"
-          - platform: windows-latest
-            args: ""
-          - platform: ubuntu-22.04
-            args: ""
-          # arm64 Linux needs the `ubuntu-22.04-arm` runner, which GitHub only
-          # offers on public repositories. Uncomment if this repo goes public —
-          # the QEMU alternative takes about an hour a build.
-          # - platform: ubuntu-22.04-arm
-          #   args: ""
+        # arm64 Linux would need the `ubuntu-22.04-arm` runner, which GitHub
+        # only offers on public repositories; the QEMU alternative takes about
+        # an hour a build. Add it to the `plan` job if this repo goes public.
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
 
     runs-on: ${{ matrix.platform }}
 
