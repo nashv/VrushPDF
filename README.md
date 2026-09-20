@@ -102,6 +102,16 @@ window minimum is 640×480.
 > each `data-platform` value, but they have not been run on real Windows or
 > Linux hardware.
 
+### Settings
+
+**⌘,** opens Settings. *Open files in the running app* decides whether
+double-clicking a PDF adds a tab to the window you already have or starts
+another copy; it is stored in `settings.json` under the app config directory
+rather than in `localStorage`, because Rust reads it while the app is still
+being assembled and no webview exists yet to ask. On macOS the control is shown
+but disabled: the system never launches a second copy of a bundled app, and
+delivers the file as an Apple Event instead.
+
 ## Distribution
 
 Tauri cannot cross-compile, so each installer is built on its own OS by

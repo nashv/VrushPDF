@@ -86,11 +86,16 @@ export class DocStore {
   }
 
   /** Replace the main document. Returns the newly registered source. */
-  async openMain(bytes: Uint8Array, path: string | null, password?: string): Promise<SourceDoc> {
+  async openMain(
+    bytes: Uint8Array,
+    path: string | null,
+    password?: string,
+    displayName?: string,
+  ): Promise<SourceDoc> {
     await this.close();
 
     const { doc, wasEncrypted } = await loadDocument(bytes, password);
-    const name = path?.split("/").pop() ?? "Untitled.pdf";
+    const name = displayName ?? path?.split("/").pop() ?? "Untitled.pdf";
     const source: SourceDoc = {
       id: MAIN_DOC,
       path,

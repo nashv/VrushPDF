@@ -44,6 +44,16 @@ export const recentsGet = () => invoke<FileMeta[]>("recents_get");
 export const recentsAdd = (path: string) => invoke<FileMeta[]>("recents_add", { path });
 export const recentsClear = () => invoke<void>("recents_clear");
 
+// ----------------------------------------------------------------- settings
+
+/** Preferences Rust needs at startup; see `src-tauri/src/settings.rs`. */
+export interface AppSettings {
+  singleInstance: boolean;
+}
+
+export const settingsGet = () => invoke<AppSettings>("settings_get");
+export const settingsSet = (settings: AppSettings) => invoke<void>("settings_set", { settings });
+
 // ------------------------------------------------------------------ dialogs
 
 /** Native open dialog. Returns `null` if the user cancels. */

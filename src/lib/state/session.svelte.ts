@@ -14,6 +14,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { DEFAULT_PAGE_SIZE } from "$lib/annotations/blank";
 import { importAnnots } from "$lib/annotations/import";
 import { buildSavedPdf, type SourceBytes } from "$lib/annotations/save";
+import type { Annot, PageEntry } from "$lib/annotations/types";
 import type { ImageSource } from "$lib/annotations/write";
 import { PasswordRequired } from "$lib/pdf/pdfjs";
 import {
@@ -53,6 +54,11 @@ class Session {
 
   /** Non-null while the unsaved-changes dialog is up. */
   closeRequest = $state<CloseRequest | null>(null);
+
+  /** True while the merge dialog is up. */
+  mergeOpen = $state(false);
+  /** True while the settings dialog is up. */
+  settingsOpen = $state(false);
 
   notify(message: string, kind: Toast["kind"] = "info") {
     const toast: Toast = { id: crypto.randomUUID(), kind, message };
@@ -326,6 +332,70 @@ class Session {
 
       this.notify(`Inserted ${pages.length} page(s) from ${source.name}.`);
       tab.view.goToPage(insertAt);
+    });
+  }
+
+  // ------------------------------------------------------------------ merging
+
+  openMergeDialog() {
+    this.mergeOpen = true;
+  }
+
+  closeMergeDialog() {
+    this.mergeOpen = false;
+  }
+
+  openSettings() {
+    this.settingsOpen = true;
+  }
+
+  closeSettings() {
+    this.settingsOpen = false;
+  }
+
+  /**
+   * Combine several PDFs, in the given order, into one new document.
+   *
+   * The result deliberately has **no path**. `openMain` would otherwise bind
+   * the tab to the first input, and Save would quietly overwrite a file the
+   * user was merging *from*. It is also marked dirty: `reset` clears that flag,
+   * and a merge that has never been written anywhere must not close without
+   * asking.
+   */
+  async mergeFiles(paths: string[]) {
+    if (paths.length === 0) return;
+
+    // Reuse an empty tab rather than stranding one behind the merge.
+    const tab = workspace.tabForOpen();
+    workspace.activate(tab.id);
+
+    await this.#withBusy("Merging…", async () => {
+      const pages: PageEntry[] = [];
+      const annots: Annot[] = [];
+
+      for (const [index, path] of paths.entries()) {
+        const bytes = await readFile(path);
+        const source =
+          index === 0
+            ? await tab.doc.openMain(bytes, null, undefined, "Merged.pdf")
+            : await tab.doc.addSource(bytes, path);
+
+        const filePages = planFor(source);
+        const imported = await importAnnots(bytes, filePages);
+
+        tab.doc.setManagedRefs(source.id, imported.managedRefs);
+        tab.doc.suppressOnCanvas(source.id, imported.suppress);
+
+        pages.push(...filePages);
+        annots.push(...imported.annots);
+      }
+
+      tab.edits.reset(pages, annots);
+      tab.edits.dirty = true;
+      tab.search.clear();
+      tab.view.goToPage(0);
+
+      this.notify(`Merged ${paths.length} file(s) into ${pages.length} page(s).`);
     });
   }
 

@@ -117,6 +117,13 @@ class Cdp {
 function stubSource(seeds: Record<string, string>, cliPath: string): string {
   return `
 (() => {
+  /*
+   * The browser profile is reused between runs, so persisted settings would
+   * carry over — the panel widths in particular, which several checks assume
+   * start at their defaults. Wipe them before any app code runs.
+   */
+  try { window.localStorage.clear(); } catch {}
+
   const seeds = ${JSON.stringify(seeds)};
   const path = ${JSON.stringify(cliPath)};
 
@@ -170,6 +177,8 @@ function stubSource(seeds: Record<string, string>, cliPath: string): string {
         }
         case "file_meta": return metaFor(args.path);
         case "recents_get": return [];
+        case "settings_get": return { singleInstance: true };
+        case "settings_set": return null;
         case "recents_add": return [];
         case "signatures_list": return [];
         case "write_file": {
@@ -1569,6 +1578,153 @@ async function main() {
     })`);
     check("the window title carries the product name", () =>
       assert.ok(branding.title.includes("VrushPDF"), `title is "${branding.title}"`),
+    );
+
+    // ------------------------------------------------------------- merging
+    console.log("\nmerge dialog");
+
+    const menuIdsForMerge = await cdp.eval<string[]>("window.__menu.ids");
+    check("File ▸ Merge PDFs… exists in the menu", () =>
+      assert.ok(menuIdsForMerge.includes("file.merge"), "no file.merge item was created"),
+    );
+
+    /*
+     * Settings opens from a native menu item, which cannot be clicked from
+     * here, so check the two halves that are observable: the item exists, and
+     * the app reads the stored preferences at startup.
+     */
+    check("Settings… exists in the menu", () =>
+      assert.ok(menuIdsForMerge.includes("app.settings"), "no app.settings item was created"),
+    );
+    const ipc = await cdp.eval<string[]>("window.__ipcCalls");
+    check("stored settings are loaded at startup", () =>
+      assert.ok(ipc.includes("settings_get"), "settings_get was never called"),
+    );
+
+    /*
+     * The welcome screen only shows with no document open, so close what is
+     * open first. It may be dirty from the earlier sections, in which case the
+     * unsaved-changes prompt has to be dismissed.
+     */
+    await cdp.eval(`(() => {
+      const close = document.querySelector('.tabbar .tab .close');
+      if (close) close.click();
+    })()`);
+    await sleep(500);
+    await cdp.eval(`(() => {
+      const discard = [...document.querySelectorAll('[role="alertdialog"] button')].find(
+        (b) => b.textContent.trim() === "Don't Save",
+      );
+      if (discard) discard.click();
+    })()`);
+
+    const welcome = await waitFor(
+      "the welcome screen",
+      () => cdp.eval<boolean>("!!document.querySelector('[title=\"Merge PDFs…\"], .welcome')"),
+      (shown) => shown,
+      15000,
+    ).catch(() => false);
+    check("closing the last document shows the welcome screen", () => assert.ok(welcome));
+
+    await cdp.eval(`(() => {
+      const btn = [...document.querySelectorAll('.welcome button')].find((b) =>
+        b.textContent.includes('Merge PDFs'),
+      );
+      btn.click();
+    })()`);
+    await sleep(300);
+    check("the welcome screen opens the merge dialog", async () =>
+      assert.ok(await cdp.eval<boolean>("!!document.querySelector('[aria-labelledby=\"merge-title\"]')")),
+    );
+
+    // Add both fixtures through the stubbed picker, then check the counts.
+    await cdp.eval(
+      `window.__nextOpen = ${JSON.stringify([PDF_PATH, PDF_PATH_2])}`,
+    );
+    await cdp.eval(`(() => {
+      const add = [...document.querySelectorAll('.dialog button')].find((b) =>
+        b.textContent.includes('Add files'),
+      );
+      add.click();
+    })()`);
+
+    const rows = await waitFor(
+      "both files listed with page counts",
+      () =>
+        cdp.eval<string[]>(
+          "[...document.querySelectorAll('.dialog .row')].map((r) => r.textContent.replace(/\\s+/g, ' ').trim())",
+        ),
+      (list) => list.length === 2 && list.every((t) => /page/.test(t)),
+      15000,
+    ).catch(() => [] as string[]);
+
+    /*
+     * Counts are read from the dialog rather than hard-coded: earlier sections
+     * add a blank page to report.pdf and save it, and the stubbed filesystem
+     * keeps that, so the fixture is not the size it started at.
+     */
+    const counts = rows.map((text) => Number(/(\d+) pages?/.exec(text)?.[1] ?? 0));
+    const expectedTotal = counts.reduce((a, b) => a + b, 0);
+
+    check("added files are listed with their real page counts", () => {
+      assert.equal(rows.length, 2, `got ${rows.length} rows`);
+      assert.ok(rows[0].includes("report.pdf"), rows[0]);
+      assert.ok(rows[1].includes("appendix.pdf"), rows[1]);
+      assert.ok(
+        counts.every((n) => n > 0),
+        `page counts did not resolve: ${rows.join(" | ")}`,
+      );
+    });
+
+    // Reorder, so the merge is provably order-sensitive.
+    await cdp.eval(`(() => {
+      const rows = document.querySelectorAll('.dialog .row');
+      [...rows[1].querySelectorAll('button')].find((b) =>
+        (b.getAttribute('title') || '') === 'Move up',
+      ).click();
+    })()`);
+    await sleep(250);
+    const reordered = await cdp.eval<string[]>(
+      "[...document.querySelectorAll('.dialog .row .file-name')].map((n) => n.textContent.trim())",
+    );
+    check("the list can be reordered before merging", () =>
+      assert.deepEqual(reordered, ["appendix.pdf", "report.pdf"]),
+    );
+
+    await cdp.eval(`(() => {
+      const merge = [...document.querySelectorAll('.dialog button')].find(
+        (b) => b.textContent.trim() === 'Merge',
+      );
+      merge.click();
+    })()`);
+
+    const merged = await waitFor(
+      "the merged document",
+      () =>
+        cdp.eval<{ pages: number; title: string; dirty: boolean }>(`(() => ({
+          pages: document.querySelectorAll('[data-page-index]').length,
+          title: document.querySelector('.tabbar .tab.active .name')?.textContent?.trim() ?? '',
+          dirty: !!document.querySelector('.tabbar .tab.active .dot'),
+        }))()`),
+      (state) => state.pages > 0,
+      30000,
+    ).catch(() => ({ pages: 0, title: "", dirty: false }));
+
+    check("merging produces one document with every page", () =>
+      assert.equal(
+        merged.pages,
+        expectedTotal,
+        `dialog promised ${expectedTotal} pages, merged document has ${merged.pages}`,
+      ),
+    );
+    check("the merged document is not bound to any input file", () => {
+      assert.ok(
+        !merged.title.includes("report.pdf") && !merged.title.includes("appendix.pdf"),
+        `merged tab is titled "${merged.title}" — Save would overwrite an input`,
+      );
+    });
+    check("the merged document is marked unsaved", () =>
+      assert.ok(merged.dirty, "closing it would discard the merge without asking"),
     );
 
     check("no uncaught errors in the page", () => {

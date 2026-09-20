@@ -5,7 +5,9 @@
 
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import Inspector from "$lib/components/Inspector.svelte";
+  import MergeDialog from "$lib/components/MergeDialog.svelte";
   import PasswordDialog from "$lib/components/PasswordDialog.svelte";
+  import SettingsDialog from "$lib/components/SettingsDialog.svelte";
   import Resizer from "$lib/components/Resizer.svelte";
   import SignaturePad from "$lib/components/SignaturePad.svelte";
   import Sidebar from "$lib/components/Sidebar.svelte";
@@ -19,6 +21,7 @@
   import { images } from "$lib/state/images.svelte";
   import { recents } from "$lib/state/recents.svelte";
   import { session } from "$lib/state/session.svelte";
+  import { settings } from "$lib/state/settings.svelte";
   import { viewer } from "$lib/state/viewer.svelte";
   import { workspace } from "$lib/state/workspace.svelte";
   import { cliFile, onExternalOpen } from "$lib/tauri/files";
@@ -33,6 +36,7 @@
     void images.loadSignatures();
     void images.loadStandard();
     void recents.refresh();
+    void settings.load();
 
     // The native menu bar: macOS gets it app-wide, Windows and Linux in-window.
     const menu = installAppMenu({ onDrawSignature: () => (signaturePadOpen = true) });
@@ -74,7 +78,14 @@
 
   // Keep the window title in step with the active document and its dirty state.
   $effect(() => {
+    // `document.title` is what a browser tab shows under `vite dev`; it has no
+    // bearing on a Tauri window, whose title bar has to be set explicitly.
     document.title = title;
+    void getCurrentWindow()
+      .setTitle(title)
+      .catch(() => {
+        // No window to title when the frontend runs outside Tauri.
+      });
   });
 </script>
 
@@ -126,6 +137,14 @@
 
 {#if session.passwordFor}
   <PasswordDialog />
+{/if}
+
+{#if session.mergeOpen}
+  <MergeDialog />
+{/if}
+
+{#if session.settingsOpen}
+  <SettingsDialog />
 {/if}
 
 <ConfirmDialog />

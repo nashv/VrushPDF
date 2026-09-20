@@ -13,11 +13,24 @@
  *   npm run verify:roundtrip
  */
 import assert from "node:assert/strict";
-import { PDFArray, PDFDocument, PDFName, StandardFonts } from "pdf-lib";
+import {
+  decodePDFRawStream,
+  PDFArray,
+  PDFDocument,
+  PDFName,
+  PDFRawStream,
+  StandardFonts,
+} from "pdf-lib";
 
 import { makePng } from "./fixtures/png.ts";
 
 import { buildSavedPdf, type SourceBytes } from "../src/lib/annotations/save.ts";
+import {
+  latin1,
+  serialize,
+  tilesExactly,
+  tokenize,
+} from "../src/lib/content/tokenizer.ts";
 import { importAnnots } from "../src/lib/annotations/import.ts";
 import type { ImageSource } from "../src/lib/annotations/write.ts";
 import {
@@ -426,6 +439,129 @@ async function main() {
     assert.equal(counted3.bySubtype.get("Stamp"), 1);
     assert.equal(counted3.bySubtype.get("Widget"), 1);
   });
+
+  // ------------------------------------------------- content-stream tokenizer
+  /*
+   * The tokenizer underpins any editing of page text, and the failure mode of a
+   * subtly wrong one is a corrupted document rather than an error. So the
+   * requirement it is held to is that token spans tile the input exactly — no
+   * gaps, no overlaps — which makes re-serialisation byte-identical by
+   * construction.
+   */
+  const bytesOf = (text: string) => new Uint8Array([...text].map((c) => c.charCodeAt(0)));
+
+  const nasties: [string, string][] = [
+    ["plain operators", "BT /F1 12 Tf 72 700 Td (Hello) Tj ET"],
+    ["nested parens", "((a(b)c)) Tj"],
+    ["escaped backslash before the close", "(a\\\\) Tj (b) Tj"],
+    ["escaped paren", "(a\\)b) Tj"],
+    ["comment containing string delimiters", "BT % this ) is ( not a string\n/F1 12 Tf ET"],
+    ["hex string", "<48656C6C6F> Tj"],
+    ["dictionary and array", "<< /A [1 2 3] /B <</C 4>> >> BDC"],
+    ["signed and bare-point numbers", "-1.5 .5 +2 0 Td"],
+    ["inline image whose payload contains EI-like bytes", "BI /W 2 /H 2 ID \u0000EI\u0001junk\u0000 EI Q"],
+    ["empty stream", ""],
+  ];
+
+  for (const [label, source] of nasties) {
+    const bytes = bytesOf(source);
+    const tokens = tokenize(bytes);
+    check(`tokens tile exactly: ${label}`, () => {
+      assert.ok(tilesExactly(bytes, tokens), "spans leave a gap or overlap");
+      assert.deepEqual(serialize(bytes, tokens), bytes, "re-serialising changed the bytes");
+    });
+  }
+
+  /*
+   * Tiling alone does not prove correct segmentation: a lexer that ends a
+   * string early still covers the input, because the leftover bytes simply
+   * become other tokens. These assert structure instead, and exist because a
+   * deliberately broken escape handler passed every tiling check.
+   */
+  const structure = (source: string) => {
+    const bytes = bytesOf(source);
+    const tokens = tokenize(bytes);
+    return {
+      strings: tokens
+        .filter((t) => t.kind === "string")
+        .map((t) => latin1(bytes, t.start, t.end)),
+      ops: tokens.filter((t) => t.kind === "operator").map((t) => t.op),
+      comments: tokens.filter((t) => t.kind === "comment").length,
+    };
+  };
+
+  check("an escaped close paren does not end the string", () => {
+    const { strings, ops } = structure("(a\\)b) Tj");
+    assert.deepEqual(strings, ["(a\\)b)"]);
+    assert.deepEqual(ops, ["Tj"]);
+  });
+
+  check("nested parens balance rather than ending at the first close", () => {
+    const { strings, ops } = structure("((a(b)c)) Tj");
+    assert.deepEqual(strings, ["((a(b)c))"]);
+    assert.deepEqual(ops, ["Tj"]);
+  });
+
+  check("an escaped backslash does not escape the close paren", () => {
+    const { strings, ops } = structure("(a\\\\) Tj (b) Tj");
+    assert.deepEqual(strings, ["(a\\\\)", "(b)"]);
+    assert.deepEqual(ops, ["Tj", "Tj"]);
+  });
+
+  check("a comment does not eat the operators after it", () => {
+    const { ops, comments } = structure("BT % this ) is ( not a string\n/F1 12 Tf ET");
+    assert.equal(comments, 1);
+    assert.deepEqual(ops, ["BT", "Tf", "ET"]);
+  });
+
+  check("a percent sign inside a string is not a comment", () => {
+    const bytes = bytesOf("(50% off) Tj");
+    const strings = tokenize(bytes).filter((t) => t.kind === "string");
+    assert.equal(strings.length, 1);
+    assert.equal(latin1(bytes, strings[0].start, strings[0].end), "(50% off)");
+  });
+
+  check("an inline image is one token and does not swallow what follows", () => {
+    const bytes = bytesOf("BI /W 1 ID \u00ff\u00fe( EI Q");
+    const tokens = tokenize(bytes);
+    assert.equal(tokens.filter((t) => t.kind === "inline-image").length, 1);
+    assert.ok(tokens.some((t) => t.op === "Q"), "the operator after the image was lost");
+  });
+
+  check("operators are classified", () => {
+    const ops = tokenize(bytesOf("BT /F1 12 Tf (x) Tj ET"))
+      .filter((t) => t.kind === "operator")
+      .map((t) => t.op);
+    assert.deepEqual(ops, ["BT", "Tf", "Tj", "ET"]);
+  });
+
+  // The same invariant against real page content, which is where the awkward
+  // bytes actually live.
+  const realPages = await PDFDocument.load(await makeBasePdf(), {
+    ignoreEncryption: true,
+    updateMetadata: false,
+  });
+  let streamsChecked = 0;
+  for (const [index, page] of realPages.getPages().entries()) {
+    const contents = page.node.get(PDFName.of("Contents"));
+    const refs = contents instanceof PDFArray ? contents.asArray() : [contents];
+    for (const ref of refs) {
+      const stream = page.node.context.lookup(ref);
+      if (!(stream instanceof PDFRawStream)) continue;
+      const bytes = decodePDFRawStream(stream).decode();
+      streamsChecked++;
+      check(`real page ${index + 1}: tokens tile exactly`, () => {
+        const tokens = tokenize(bytes);
+        assert.ok(tilesExactly(bytes, tokens), "spans do not tile the page content");
+        assert.deepEqual(serialize(bytes, tokens), bytes);
+        assert.ok(
+          tokens.some((t) => t.op === "Tj" || t.op === "TJ"),
+          "no show-text operator found, so this proves nothing",
+        );
+      });
+    }
+  }
+  check("real page content was actually exercised", () => assert.ok(streamsChecked > 0));
 
   console.log(
     failures === 0 ? "\nAll round-trip checks passed." : `\n${failures} check(s) FAILED.`,

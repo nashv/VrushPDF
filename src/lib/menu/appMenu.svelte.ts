@@ -136,6 +136,12 @@ function fileMenu(recentsSubmenu: Submenu, quit: Spec[]): Spec {
       { kind: "built", item: recentsSubmenu },
       sep,
       item({
+        id: "file.merge",
+        label: "Merge PDFs…",
+        action: () => session.openMergeDialog(),
+      }),
+      sep,
+      item({
         id: "file.newTab",
         label: "New Tab",
         accelerator: "CmdOrCtrl+T",
@@ -666,6 +672,13 @@ export async function installAppMenu(hooks: {
       action: () => void session.requestQuit(),
     });
 
+    const settingsItem = item({
+      id: "app.settings",
+      label: "Settings…",
+      accelerator: "CmdOrCtrl+,",
+      action: () => session.openSettings(),
+    });
+
     const about: Spec = {
       kind: "native",
       item: {
@@ -685,6 +698,8 @@ export async function installAppMenu(hooks: {
             label: "VrushPDF",
             items: [
               about,
+              sep,
+              settingsItem,
               sep,
               { kind: "native", item: "Services" },
               sep,
@@ -708,7 +723,7 @@ export async function installAppMenu(hooks: {
     const items = await buildItems(
       [
         ...appMenu,
-        fileMenu(recentsSubmenu, isMac ? [] : [sep, quit]),
+        fileMenu(recentsSubmenu, isMac ? [] : [sep, settingsItem, sep, quit]),
         editMenu,
         viewMenu,
         goMenu,

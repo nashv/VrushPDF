@@ -18,9 +18,14 @@
     <Icon name="file" size={40} />
     <h1>VrushPDF</h1>
     <p class="muted">Open a PDF to read, mark it up, sign it, and rearrange its pages.</p>
-    <button class="btn primary big" onclick={() => session.openViaDialog()}>
-      <Icon name="open" /> Open a PDF…
-    </button>
+    <span class="actions">
+      <button class="btn primary big" onclick={() => session.openViaDialog()}>
+        <Icon name="open" /> Open a PDF…
+      </button>
+      <button class="btn outlined big" onclick={() => session.openMergeDialog()}>
+        <Icon name="merge" /> Merge PDFs…
+      </button>
+    </span>
     <p class="drop muted">…or drop one onto this window.</p>
   </div>
 
@@ -80,9 +85,14 @@
     line-height: 1.5;
   }
 
+  .actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
   .big {
     height: 34px;
-    margin-top: 12px;
     padding: 0 16px;
   }
 

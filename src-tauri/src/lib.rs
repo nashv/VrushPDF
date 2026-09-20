@@ -1,10 +1,44 @@
 mod commands;
+mod settings;
 
 use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    // Only reassigned off macOS, where the single-instance plugin is added.
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default();
+
+    /*
+     * Hand a double-clicked file to the running app rather than starting
+     * another copy. This has to be decided before the app is built, which is
+     * why the preference lives in a file rather than in localStorage.
+     *
+     * Not on macOS: the system already refuses to launch a second copy of a
+     * bundle and delivers the file as `RunEvent::Opened` below.
+     */
+    #[cfg(not(target_os = "macos"))]
+    if settings::load().single_instance {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_focus();
+                let paths: Vec<String> = argv
+                    .iter()
+                    .skip(1)
+                    .filter(|a| {
+                        let p = std::path::Path::new(a);
+                        p.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf")) && p.is_file()
+                    })
+                    .cloned()
+                    .collect();
+                if !paths.is_empty() {
+                    let _ = window.emit("pdf://open-paths", paths);
+                }
+            }
+        }));
+    }
+
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
@@ -19,6 +53,8 @@ pub fn run() {
             commands::signature_read,
             commands::signature_save,
             commands::signature_delete,
+            commands::settings_get,
+            commands::settings_set,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -39,6 +75,8 @@ pub fn run() {
                         .collect();
                     if !paths.is_empty() {
                         if let Some(window) = app.get_webview_window("main") {
+                            // Double-clicking a file should bring the app forward.
+                            let _ = window.set_focus();
                             let _ = window.emit("pdf://open-paths", paths);
                         }
                     }

@@ -192,6 +192,18 @@ pub fn recents_clear<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     }
 }
 
+// ------------------------------------------------------------------ settings
+
+#[tauri::command]
+pub fn settings_get() -> crate::settings::Settings {
+    crate::settings::load()
+}
+
+#[tauri::command]
+pub fn settings_set(settings: crate::settings::Settings) -> Result<(), String> {
+    crate::settings::store(&settings)
+}
+
 // ----------------------------------------------------------------- signatures
 
 fn signatures_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
