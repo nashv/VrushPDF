@@ -142,6 +142,11 @@ gh workflow run release.yml -f platforms=no-macos
 
 arm64 Linux is left out because GitHub's free arm64 runner is public-repo only.
 
+The matrix jobs only *build*; a single `release` job afterwards assembles the
+draft from their artifacts. Letting each job create the release does not work:
+a draft cannot be looked up by tag, so parallel jobs each make their own and the
+installers scatter across several drafts.
+
 > `RunEvent::Opened` is macOS-only, so anything added to the Rust run-loop
 > handler needs a `#[cfg]` guard. A local `cargo check` only ever targets the
 > host, so CI is what catches this.

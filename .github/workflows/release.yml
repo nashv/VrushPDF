@@ -123,28 +123,22 @@ jobs:
       - name: Type-check
         run: npm run check
 
+      # Builds only. Deliberately no release inputs: with four jobs in
+      # parallel each would try to create the release, and a *draft* cannot be
+      # looked up by tag, so several drafts appear and the assets scatter
+      # between them. The `release` job below publishes instead.
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         id: tauri
         with:
           args: ${{ matrix.args }}
-          # Release inputs are empty on a manual run, which makes the action
-          # build without publishing.
-          tagName: ${{ startsWith(github.ref, 'refs/tags/') && 'v__VERSION__' || '' }}
-          releaseName: ${{ startsWith(github.ref, 'refs/tags/') && 'VrushPDF v__VERSION__' || '' }}
-          releaseBody: ${{ startsWith(github.ref, 'refs/tags/') && 'Download the installer for your platform below. These builds are unsigned — see the README for how to get past Gatekeeper and SmartScreen.' || '' }}
-          # Draft so the notes can be written and the assets checked before it
-          # goes out.
-          releaseDraft: true
-          prerelease: false
 
       # Gather the bundles into one directory first. The action reports them as
       # a JSON array of absolute paths, which upload-artifact's newline-separated
       # `path` input cannot consume directly. `shell: bash` covers the Windows
       # runner too, and node does the copying so the same code runs everywhere.
       - name: Collect installers
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         shell: bash
         env:
           ARTIFACT_PATHS: ${{ steps.tauri.outputs.artifactPaths }}
@@ -161,9 +155,34 @@ jobs:
           "
 
       - name: Upload installers as artifacts
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v7
         with:
           name: installers-${{ matrix.label }}
           path: dist-artifacts/
           if-no-files-found: error
+
+  # One job, after every build, so exactly one release exists and it has all of
+  # the installers.
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create the draft release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ls -R dist
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --draft \
+            --title "VrushPDF ${GITHUB_REF_NAME}" \
+            --notes 'Download the installer for your platform below. These builds are unsigned — see the README for how to get past Gatekeeper and SmartScreen.' \
+            $(find dist -type f | sort)
