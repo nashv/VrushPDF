@@ -659,7 +659,7 @@ export async function installAppMenu(hooks: {
     const version = await getVersion().catch(() => "");
     const quit = item({
       id: "app.quit",
-      label: isMac ? "Quit PDF Editor" : "Exit",
+      label: isMac ? "Quit VrushPDF" : "Exit",
       accelerator: "CmdOrCtrl+Q",
       // Never the predefined Quit: that ends the process without giving the
       // unsaved-changes prompt a chance to run.
@@ -670,19 +670,19 @@ export async function installAppMenu(hooks: {
       kind: "native",
       item: {
         About: {
-          name: "PDF Editor",
+          name: "VrushPDF",
           version,
           copyright: "MIT licensed",
         },
       },
-      label: "About PDF Editor",
+      label: "About VrushPDF",
     };
 
     const appMenu: Spec[] = isMac
       ? [
           {
             kind: "menu",
-            label: "PDF Editor",
+            label: "VrushPDF",
             items: [
               about,
               sep,

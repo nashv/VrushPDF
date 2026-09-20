@@ -18,7 +18,7 @@ import { PDFArray, PDFDocument, PDFName } from "pdf-lib";
 
 const FRONTEND = "http://localhost:1420";
 const CDP_PORT = 9223;
-const OUT_DIR = "/tmp/pdfeditor-test";
+const OUT_DIR = "/tmp/vrushpdf-test";
 const PDF_PATH = `${OUT_DIR}/report.pdf`;
 const PDF_PATH_2 = `${OUT_DIR}/appendix.pdf`;
 const STAMP_PNG_PATH = `${OUT_DIR}/stamp.png`;
@@ -1202,7 +1202,7 @@ async function main() {
       // The write is debounced, so give it a moment before reading it back.
       await sleep(400);
       const stored = await cdp.eval<string | null>(
-        "window.localStorage.getItem('pdfeditor.layout.v2')",
+        "window.localStorage.getItem('vrushpdf.layout.v2')",
       );
       check("the new width is persisted for next launch", () => {
         assert.ok(stored, "nothing written to localStorage");
@@ -1562,6 +1562,14 @@ async function main() {
       width: 1440, height: 960, deviceScaleFactor: 1, mobile: false,
     });
     await sleep(400);
+
+    const branding = await cdp.eval<{ title: string; heading: string | null }>(`({
+      title: document.title,
+      heading: document.querySelector('.hero h1')?.textContent?.trim() ?? null,
+    })`);
+    check("the window title carries the product name", () =>
+      assert.ok(branding.title.includes("VrushPDF"), `title is "${branding.title}"`),
+    );
 
     check("no uncaught errors in the page", () => {
       assert.deepEqual(consoleErrors, []);

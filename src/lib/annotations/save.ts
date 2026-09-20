@@ -130,7 +130,7 @@ async function rebuild(
   getSource: (id: string) => SourceBytes | null,
 ): Promise<Prepared> {
   const out = await PDFDocument.create();
-  out.setProducer("PDF Editor");
+  out.setProducer("VrushPDF");
 
   // `copyPages` only moves the page tree, so carry over what metadata we can.
   try {

@@ -1,4 +1,4 @@
-# PDF Editor
+# VrushPDF
 
 A desktop PDF viewer and annotation editor built with Tauri 2, SvelteKit 5 and
 TypeScript. Annotations are written as **standard PDF annotation objects** with
@@ -81,7 +81,7 @@ that the style controls stay on screen at 1100px. It needs a Chromium-based
 browser and the fixtures:
 
 ```sh
-npm run fixture:pdf        # writes report.pdf + appendix.pdf to /tmp/pdfeditor-test
+npm run fixture:pdf        # writes report.pdf + appendix.pdf to /tmp/vrushpdf-test
 ```
 
 ### Platform fit

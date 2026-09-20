@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    pdfeditor_lib::run()
+    vrushpdf_lib::run()
 }

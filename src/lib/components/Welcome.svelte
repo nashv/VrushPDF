@@ -16,7 +16,7 @@
 <div class="welcome">
   <div class="hero">
     <Icon name="file" size={40} />
-    <h1>PDF Editor</h1>
+    <h1>VrushPDF</h1>
     <p class="muted">Open a PDF to read, mark it up, sign it, and rearrange its pages.</p>
     <button class="btn primary big" onclick={() => session.openViaDialog()}>
       <Icon name="open" /> Open a PDF…

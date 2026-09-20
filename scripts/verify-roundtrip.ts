@@ -377,6 +377,20 @@ async function main() {
 
   const rebuilt = await PDFDocument.load(save3.bytes, { ignoreEncryption: true });
   check("page count follows the plan", () => assert.equal(rebuilt.getPageCount(), 2));
+  /*
+   * The product name is written into every file the app saves, as the PDF
+   * Producer and as the annotation author. That is the layer a rename is most
+   * likely to miss, because nothing on screen looks wrong when it is stale.
+   */
+  const asWritten = await PDFDocument.load(save3.bytes, {
+    ignoreEncryption: true,
+    // Without this pdf-lib stamps its own Producer into the in-memory copy as
+    // it loads, and the assertion below would only ever see pdf-lib's string.
+    updateMetadata: false,
+  });
+  check("the saved file carries the current product name", () =>
+    assert.equal(asWritten.getProducer(), "VrushPDF"),
+  );
   check("rotation was applied to the right page", () => {
     assert.equal(rebuilt.getPages()[0].getRotation().angle, 90);
     assert.equal(rebuilt.getPages()[1].getRotation().angle, 0);

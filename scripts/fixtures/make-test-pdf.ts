@@ -9,7 +9,7 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 import { makePng } from "./png.ts";
 
-const OUT_DIR = "/tmp/pdfeditor-test";
+const OUT_DIR = "/tmp/vrushpdf-test";
 
 const body = [
   "The quick brown fox jumps over the lazy dog. Pack my box with five dozen",

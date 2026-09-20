@@ -28,8 +28,20 @@ export interface AnnotStyle {
   fontSize: number;
 }
 
-const STYLE_KEY = "pdfeditor.styles.v1";
-const LAYOUT_KEY = "pdfeditor.layout.v2";
+const STYLE_KEY = "vrushpdf.styles.v1";
+const LAYOUT_KEY = "vrushpdf.layout.v2";
+
+/*
+ * The app was called "PDF Editor" until 0.1.0. Reading the old keys once means
+ * the rename does not silently reset saved styles and panel widths.
+ */
+const LEGACY_STYLE_KEY = "pdfeditor.styles.v1";
+const LEGACY_LAYOUT_KEY = "pdfeditor.layout.v2";
+
+function readStored(key: string, legacy: string): string | null {
+  const store = globalThis.localStorage;
+  return store?.getItem(key) ?? store?.getItem(legacy) ?? null;
+}
 
 /** Panel widths, in px. Defaults match `--sidebar-w` / `--inspector-w`. */
 export const PANEL_DEFAULTS = { sidebar: 288, inspector: 272 } as const;
@@ -46,7 +58,7 @@ interface Layout {
 function loadLayout(): Layout {
   const layout: Layout = { widths: { ...PANEL_DEFAULTS }, labels: false };
   try {
-    const raw = globalThis.localStorage?.getItem(LAYOUT_KEY);
+    const raw = readStored(LAYOUT_KEY, LEGACY_LAYOUT_KEY);
     if (!raw) return layout;
     const saved = JSON.parse(raw) as Partial<Layout>;
     for (const panel of Object.keys(layout.widths) as Panel[]) {
@@ -92,7 +104,7 @@ function defaultStyles(): Record<AnnotKind, AnnotStyle> {
 function loadStyles(): Record<AnnotKind, AnnotStyle> {
   const defaults = defaultStyles();
   try {
-    const raw = globalThis.localStorage?.getItem(STYLE_KEY);
+    const raw = readStored(STYLE_KEY, LEGACY_STYLE_KEY);
     if (!raw) return defaults;
     const saved = JSON.parse(raw) as Partial<Record<AnnotKind, Partial<AnnotStyle>>>;
     for (const [kind, style] of Object.entries(saved)) {

@@ -69,7 +69,7 @@
   });
 
   const title = $derived(
-    tab && hasDocument ? `${tab.dirty ? "• " : ""}${tab.title} — PDF Editor` : "PDF Editor",
+    tab && hasDocument ? `${tab.dirty ? "• " : ""}${tab.title} — VrushPDF` : "VrushPDF",
   );
 
   // Keep the window title in step with the active document and its dirty state.

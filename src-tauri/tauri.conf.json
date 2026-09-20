@@ -1,9 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "PDF Editor",
-  "mainBinaryName": "pdf-editor",
+  "productName": "VrushPDF",
+  "mainBinaryName": "vrushpdf",
   "version": "../package.json",
-  "identifier": "com.nachiket.pdfeditor",
+  "identifier": "com.nachiket.vrushpdf",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
   "app": {
     "windows": [
       {
-        "title": "PDF Editor",
+        "title": "VrushPDF",
         "width": 1400,
         "height": 900,
         "minWidth": 640,
@@ -32,7 +32,6 @@
     "homepage": "https://github.com/nashv/PDFEditor",
     "copyright": "Copyright © 2026 nashv",
     "license": "MIT",
-    "licenseFile": "../LICENSE",
     "category": "Productivity",
     "shortDescription": "Read, annotate and reorganise PDFs.",
     "longDescription": "A desktop PDF viewer and annotation editor. Highlight, underline, draw, add shapes, text boxes, comments, stamps and signatures, and rearrange pages. Annotations are written as standard PDF annotation objects with real appearance streams, so they stay editable in other readers.",

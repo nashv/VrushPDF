@@ -277,7 +277,7 @@ export function setFreeTextText(a: FreeTextAnnot, text: string): FreeTextAnnot {
   return { ...a, text, contents: text };
 }
 
-export const DEFAULT_AUTHOR = "PDF Editor";
+export const DEFAULT_AUTHOR = "VrushPDF";
 
 export function newId(): string {
   return crypto.randomUUID();

@@ -132,7 +132,7 @@ jobs:
           # Release inputs are empty on a manual run, which makes the action
           # build without publishing.
           tagName: ${{ startsWith(github.ref, 'refs/tags/') && 'v__VERSION__' || '' }}
-          releaseName: ${{ startsWith(github.ref, 'refs/tags/') && 'PDF Editor v__VERSION__' || '' }}
+          releaseName: ${{ startsWith(github.ref, 'refs/tags/') && 'VrushPDF v__VERSION__' || '' }}
           releaseBody: ${{ startsWith(github.ref, 'refs/tags/') && 'Download the installer for your platform below. These builds are unsigned — see the README for how to get past Gatekeeper and SmartScreen.' || '' }}
           # Draft so the notes can be written and the assets checked before it
           # goes out.
