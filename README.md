@@ -121,10 +121,20 @@ with everything attached:
 | Windows | `.msi` (WiX), `-setup.exe` (NSIS) |
 | Linux x86-64 | `.deb`, `.rpm`, `.AppImage` |
 
-Run the workflow manually (`workflow_dispatch`) to build the same matrix without
-publishing — the installers come back as workflow artifacts. arm64 Linux is
-commented out in the matrix because GitHub's free arm64 runner is public-repo
-only.
+Run the workflow manually (`workflow_dispatch`) to build without publishing —
+the installers come back as workflow artifacts. It takes a `platforms` input
+(`all`, `no-macos`, `macos`, `windows`, `linux`) so iterating on one platform's
+build failure doesn't pay for macOS runners at 10x:
+
+```sh
+gh workflow run release.yml -f platforms=no-macos
+```
+
+arm64 Linux is left out because GitHub's free arm64 runner is public-repo only.
+
+> `RunEvent::Opened` is macOS-only, so anything added to the Rust run-loop
+> handler needs a `#[cfg]` guard. A local `cargo check` only ever targets the
+> host, so CI is what catches this.
 
 To build the macOS bundle locally: `npm run tauri build`.
 
