@@ -1,16 +1,18 @@
 <script lang="ts">
   /** The document's bookmark tree, if it has one. */
   import type { OutlineNode } from "$lib/pdf/pdfjs";
-  import { doc } from "$lib/state/doc.svelte";
-  import { edits } from "$lib/state/edits.svelte";
   import { MAIN_DOC } from "$lib/state/doc.svelte";
-  import { viewer } from "$lib/state/viewer.svelte";
+  import type { DocumentTab } from "$lib/state/workspace.svelte";
   import Icon from "./Icon.svelte";
   import OutlinePanel from "./OutlinePanel.svelte";
 
-  let { nodes = null, depth = 0 }: { nodes?: OutlineNode[] | null; depth?: number } = $props();
+  let {
+    tab,
+    nodes = null,
+    depth = 0,
+  }: { tab: DocumentTab; nodes?: OutlineNode[] | null; depth?: number } = $props();
 
-  const items = $derived(nodes ?? doc.outline);
+  const items = $derived(nodes ?? tab.doc.outline);
   let collapsed = $state.raw(new Set<string>());
 
   /**
@@ -19,13 +21,13 @@
    * the index.
    */
   function planIndexFor(sourceIndex: number): number {
-    return edits.pages.findIndex((p) => p.sourceDocId === MAIN_DOC && p.srcIndex === sourceIndex);
+    return tab.edits.pages.findIndex((p) => p.sourceDocId === MAIN_DOC && p.srcIndex === sourceIndex);
   }
 
   function go(node: OutlineNode) {
     if (node.pageIndex === null) return;
     const index = planIndexFor(node.pageIndex);
-    if (index >= 0) viewer.goToPage(index);
+    if (index >= 0) tab.view.goToPage(index);
   }
 
   function toggle(key: string) {
@@ -67,7 +69,7 @@
           </button>
         </div>
         {#if node.children.length > 0 && !isCollapsed}
-          <OutlinePanel nodes={node.children} depth={depth + 1} />
+          <OutlinePanel {tab} nodes={node.children} depth={depth + 1} />
         {/if}
       </li>
     {/each}

@@ -1,27 +1,44 @@
 <script lang="ts">
-  /** App shell: toolbar, sidebar, viewer, inspector, plus global wiring. */
+  /** App shell: tab strip, toolbar, sidebar, viewer, inspector, global wiring. */
   import { onMount } from "svelte";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
 
+  import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import Inspector from "$lib/components/Inspector.svelte";
   import PasswordDialog from "$lib/components/PasswordDialog.svelte";
+  import Resizer from "$lib/components/Resizer.svelte";
   import SignaturePad from "$lib/components/SignaturePad.svelte";
   import Sidebar from "$lib/components/Sidebar.svelte";
+  import TabBar from "$lib/components/TabBar.svelte";
   import Toasts from "$lib/components/Toasts.svelte";
   import Toolbar from "$lib/components/Toolbar.svelte";
   import Viewer from "$lib/components/Viewer.svelte";
   import Welcome from "$lib/components/Welcome.svelte";
+  import { installAppMenu } from "$lib/menu/appMenu.svelte";
   import { handleShortcut } from "$lib/shortcuts";
-  import { doc } from "$lib/state/doc.svelte";
-  import { edits } from "$lib/state/edits.svelte";
   import { images } from "$lib/state/images.svelte";
+  import { recents } from "$lib/state/recents.svelte";
   import { session } from "$lib/state/session.svelte";
   import { viewer } from "$lib/state/viewer.svelte";
+  import { workspace } from "$lib/state/workspace.svelte";
   import { cliFile, onExternalOpen } from "$lib/tauri/files";
 
   let signaturePadOpen = $state(false);
 
+  const tab = $derived(workspace.active);
+  /** True once a document is loaded; an empty tab still shows the welcome screen. */
+  const hasDocument = $derived(tab?.isOpen === true);
+
   onMount(() => {
     void images.loadSignatures();
+    void images.loadStandard();
+    void recents.refresh();
+
+    // The native menu bar: macOS gets it app-wide, Windows and Linux in-window.
+    const menu = installAppMenu({ onDrawSignature: () => (signaturePadOpen = true) });
+
+    // Start with one empty tab so the welcome screen has somewhere to open into.
+    if (workspace.count === 0) workspace.open();
 
     // A file association or `open -a` hands us a path on argv.
     void cliFile()
@@ -32,50 +49,67 @@
         // Not fatal: the welcome screen is a fine place to land.
       });
 
-    // Finder "Open With" and drag-and-drop both arrive after startup.
-    const unlisten = onExternalOpen(([first]) => {
-      if (first) void session.openPath(first);
+    // Finder "Open With" and drag-and-drop can both deliver several files.
+    const unlisten = onExternalOpen((paths) => {
+      void session.openPaths(paths);
+    });
+
+    // Intercept the window close so dirty documents get a chance to be saved.
+    const closeGuard = getCurrentWindow().onCloseRequested(async (event) => {
+      if (!workspace.anyDirty) return;
+      event.preventDefault();
+      void session.requestQuit();
     });
 
     return () => {
       void unlisten.then((off) => off()).catch(() => {});
+      void closeGuard.then((off) => off()).catch(() => {});
+      void menu.then((dispose) => dispose()).catch(() => {});
     };
   });
 
   const title = $derived(
-    doc.isOpen ? `${edits.dirty ? "• " : ""}${doc.name} — PDF Editor` : "PDF Editor",
+    tab && hasDocument ? `${tab.dirty ? "• " : ""}${tab.title} — PDF Editor` : "PDF Editor",
   );
 
-  // Keep the window title in step with the document and its dirty state.
+  // Keep the window title in step with the active document and its dirty state.
   $effect(() => {
     document.title = title;
   });
-
-  /**
-   * Warn before losing unsaved work. `beforeunload` covers the webview reload
-   * path; a native close still needs Tauri's own close handler to be added if
-   * that becomes a concern.
-   */
-  function onBeforeUnload(event: BeforeUnloadEvent) {
-    if (!edits.dirty) return;
-    event.preventDefault();
-  }
 </script>
 
-<svelte:window onkeydown={handleShortcut} onbeforeunload={onBeforeUnload} />
+<svelte:window onkeydown={handleShortcut} />
 
 <div class="app">
-  <Toolbar onDrawSignature={() => (signaturePadOpen = true)} />
+  <Toolbar {tab} onDrawSignature={() => (signaturePadOpen = true)} />
+
+  <!--
+    Below the toolbar, above the content: where AppKit puts a window's tab bar,
+    and where Finder, Preview, Terminal and Xcode all show theirs. Tabs above
+    the toolbar is the browser convention, which this is not.
+  -->
+  {#if workspace.count > 1 || hasDocument}
+    <TabBar />
+  {/if}
 
   <div class="body">
-    {#if doc.isOpen}
-      {#if viewer.sidebarOpen}
-        <Sidebar />
-      {/if}
-      <Viewer />
-      {#if viewer.inspectorOpen}
-        <Inspector />
-      {/if}
+    {#if tab && hasDocument}
+      <!--
+        Keyed on the tab so switching documents remounts the viewer rather than
+        reconciling one document's canvases and text layers into another's.
+        Scroll position is restored from `tab.view.scrollTop`.
+      -->
+      {#key tab.id}
+        {#if viewer.sidebarOpen}
+          <Sidebar {tab} />
+          <Resizer panel="sidebar" side="left" label="Resize sidebar" />
+        {/if}
+        <Viewer {tab} />
+        {#if viewer.inspectorOpen}
+          <Resizer panel="inspector" side="right" label="Resize properties panel" />
+          <Inspector {tab} />
+        {/if}
+      {/key}
     {:else}
       <Welcome />
     {/if}
@@ -94,6 +128,7 @@
   <PasswordDialog />
 {/if}
 
+<ConfirmDialog />
 <Toasts />
 
 <style>
@@ -105,6 +140,7 @@
   }
 
   .body {
+    position: relative;
     display: flex;
     flex: 1;
     min-height: 0;

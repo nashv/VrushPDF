@@ -1,10 +1,27 @@
 /** Search box state and the running scan. */
 import { searchDocument, type SearchMatch, type SearchOptions } from "$lib/pdf/search";
-import { doc } from "./doc.svelte";
-import { edits } from "./edits.svelte";
-import { viewer } from "./viewer.svelte";
+import type { DocStore } from "./doc.svelte";
+import type { EditStore } from "./edits.svelte";
+import type { ViewState } from "./viewer.svelte";
 
-class SearchStore {
+/** The parts of a tab a search needs: what to scan, and where to scroll. */
+export interface SearchTarget {
+  doc: DocStore;
+  edits: EditStore;
+  view: ViewState;
+}
+
+export class SearchStore {
+  /**
+   * Injected rather than imported: each tab searches its own document and
+   * scrolls its own viewer.
+   */
+  #target: SearchTarget;
+
+  constructor(target: SearchTarget) {
+    this.#target = target;
+  }
+
   query = $state("");
   matchCase = $state(false);
   wholeWords = $state(false);
@@ -40,10 +57,10 @@ class SearchStore {
     const options: SearchOptions = { matchCase: this.matchCase, wholeWords: this.wholeWords };
 
     try {
-      const pages = $state.snapshot(edits.pages);
+      const pages = $state.snapshot(this.#target.edits.pages);
       const iterator = searchDocument(
         pages,
-        (id) => doc.source(id)?.proxy ?? null,
+        (id) => this.#target.doc.source(id)?.proxy ?? null,
         this.query,
         options,
         controller.signal,
@@ -66,7 +83,7 @@ class SearchStore {
     if (this.results.length === 0) return;
     const wrapped = ((index % this.results.length) + this.results.length) % this.results.length;
     this.activeIndex = wrapped;
-    viewer.goToPage(this.results[wrapped].pageIndex);
+    this.#target.view.goToPage(this.results[wrapped].pageIndex);
   }
 
   next() {
@@ -86,5 +103,3 @@ class SearchStore {
     this.running = false;
   }
 }
-
-export const search = new SearchStore();

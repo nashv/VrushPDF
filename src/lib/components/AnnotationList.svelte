@@ -6,9 +6,12 @@
     isTextMarkup,
     type Annot,
   } from "$lib/annotations/types";
-  import { edits } from "$lib/state/edits.svelte";
   import { viewer } from "$lib/state/viewer.svelte";
+  import type { DocumentTab } from "$lib/state/workspace.svelte";
   import Icon, { type IconName } from "./Icon.svelte";
+
+  let { tab }: { tab: DocumentTab } = $props();
+  const edits = $derived(tab.edits);
 
   const KIND_LABEL: Record<Annot["kind"], string> = {
     highlight: "Highlight",
@@ -21,7 +24,7 @@
     line: "Line",
     arrow: "Arrow",
     freetext: "Text box",
-    note: "Note",
+    note: "Comment",
     stamp: "Stamp",
   };
 
@@ -67,7 +70,7 @@
   function go(annot: Annot) {
     const pageIndex = edits.pageIndexOf(annot.pageId);
     edits.select(annot.id);
-    if (pageIndex >= 0) viewer.goToPage(pageIndex);
+    if (pageIndex >= 0) tab.view.goToPage(pageIndex);
     viewer.inspectorOpen = true;
   }
 </script>

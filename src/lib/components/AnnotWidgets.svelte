@@ -133,7 +133,7 @@
       style:height="{size}px"
       style:background={annot.color}
       style:opacity={annot.opacity}
-      title={annot.contents || "Note"}
+      title={annot.contents || "Comment"}
       onpointerdown={(event) => onNoteDown?.(event, annot)}
     >
       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -145,7 +145,7 @@
           stroke-linejoin="round"
         />
       </svg>
-      <span class="sr-only">Note: {annot.contents || "empty"}</span>
+      <span class="sr-only">Comment: {annot.contents || "empty"}</span>
     </button>
   {/each}
 

@@ -5,16 +5,20 @@
  * original bytes, the pdf.js proxies, page geometry and the outline. Editable
  * state (page order, annotations) lives in `edits.svelte.ts`.
  *
- * More than one source document can be open at once: merging another PDF in
- * registers it here under a fresh id, and `PageEntry.sourceDocId` points back.
+ * One instance per open tab. Within a tab more than one source document can be
+ * live at once: merging another PDF in registers it here under a fresh id, and
+ * `PageEntry.sourceDocId` points back.
  *
  * pdf.js proxies and raw byte arrays are held in `$state.raw`. Svelte's deep
  * proxy would wrap the proxies' class instances and break their private-field
  * access, and deep-proxying a multi-megabyte byte array is pure overhead.
  */
+import { blankPdfBytes } from "$lib/annotations/blank";
 import { loadDocument, loadOutline, type OutlineNode, type PDFDocumentProxy, type PDFPageProxy } from "$lib/pdf/pdfjs";
 import { pageSize } from "$lib/pdf/render";
-import { readFile, recentsAdd, fileMeta } from "$lib/tauri/files";
+import { fileMeta } from "$lib/tauri/files";
+
+import { recents } from "./recents.svelte";
 
 export const MAIN_DOC = "main";
 
@@ -43,9 +47,11 @@ async function describe(proxy: PDFDocumentProxy) {
   return pages;
 }
 
-class DocStore {
+export class DocStore {
   /** Source documents by id; `MAIN_DOC` is the file the window represents. */
   sources = $state.raw(new Map<string, SourceDoc>());
+  /** Generated blank-page sources, by `"<width>x<height>"`. */
+  #blanks = new Map<string, string>();
   outline = $state.raw<OutlineNode[]>([]);
   /** Set when the opened file was encrypted — saving writes it back decrypted. */
   wasEncrypted = $state(false);
@@ -98,23 +104,46 @@ class DocStore {
     this.sources = new Map([[MAIN_DOC, source]]);
     this.wasEncrypted = wasEncrypted;
     this.outline = await loadOutline(doc);
-    if (path) void recentsAdd(path).catch(() => {});
+    if (path) void recents.add(path);
     return source;
   }
 
   /** Register an extra document so its pages can be merged into the plan. */
-  async addSource(bytes: Uint8Array, path: string | null): Promise<SourceDoc> {
+  async addSource(bytes: Uint8Array, path: string | null, name?: string): Promise<SourceDoc> {
     const { doc } = await loadDocument(bytes);
     const source: SourceDoc = {
       id: crypto.randomUUID(),
       path,
-      name: path?.split("/").pop() ?? "Untitled.pdf",
+      name: name ?? path?.split("/").pop() ?? "Untitled.pdf",
       bytes,
       proxy: doc,
       pages: await describe(doc),
       managedRefs: new Set(),
     };
     this.sources = new Map(this.sources).set(source.id, source);
+    return source;
+  }
+
+  /**
+   * A source document holding one empty page of the given size.
+   *
+   * Cached per size, so a document with twenty blank A4 pages carries one
+   * generated PDF and one pdf.js instance rather than twenty. Each blank page
+   * still gets its own `PageEntry`, and the save path already copies a source
+   * page once per plan entry that names it.
+   *
+   * A cached id that is no longer in `sources` — `pruneSources` drops blanks
+   * once the last page using them is deleted — simply regenerates.
+   */
+  async blankSource(width: number, height: number): Promise<SourceDoc> {
+    const key = `${Math.round(width)}x${Math.round(height)}`;
+    const cached = this.#blanks.get(key);
+    const existing = cached ? this.sources.get(cached) : undefined;
+    if (existing) return existing;
+
+    const bytes = await blankPdfBytes(width, height);
+    const source = await this.addSource(bytes, null, "blank page");
+    this.#blanks.set(key, source.id);
     return source;
   }
 
@@ -141,15 +170,6 @@ class DocStore {
     }
   }
 
-  /** Point the main document at a new path after Save As. */
-  async rebind(path: string) {
-    const main = this.main;
-    if (!main) return;
-    const meta = await fileMeta(path).catch(() => null);
-    const next: SourceDoc = { ...main, path, name: meta?.name ?? path.split("/").pop() ?? main.name };
-    this.sources = new Map(this.sources).set(MAIN_DOC, next);
-  }
-
   /** Drop sources no longer referenced by any page in the plan. */
   async pruneSources(usedIds: Set<string>) {
     const keep = new Map<string, SourceDoc>();
@@ -166,17 +186,10 @@ class DocStore {
   async close() {
     const open = [...this.sources.values()];
     this.sources = new Map();
+    this.#blanks.clear();
     this.outline = [];
     this.wasEncrypted = false;
     this.error = null;
     await Promise.all(open.map((s) => s.proxy.loadingTask.destroy().catch(() => {})));
   }
-}
-
-export const doc = new DocStore();
-
-/** Read a file from disk and open it as the main document. */
-export async function openPath(path: string, password?: string) {
-  const bytes = await readFile(path);
-  return doc.openMain(bytes, path, password);
 }

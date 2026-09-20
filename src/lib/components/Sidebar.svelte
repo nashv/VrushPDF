@@ -1,47 +1,52 @@
 <script lang="ts">
   /** Left panel: thumbnails, annotations, bookmarks, search. */
-  import { edits } from "$lib/state/edits.svelte";
-  import { search } from "$lib/state/search.svelte";
   import { viewer, type SidebarTab } from "$lib/state/viewer.svelte";
+  import type { DocumentTab } from "$lib/state/workspace.svelte";
   import AnnotationList from "./AnnotationList.svelte";
   import Icon, { type IconName } from "./Icon.svelte";
   import OutlinePanel from "./OutlinePanel.svelte";
   import SearchPanel from "./SearchPanel.svelte";
   import ThumbnailStrip from "./ThumbnailStrip.svelte";
 
+  let { tab }: { tab: DocumentTab } = $props();
+
   const tabs: {
     id: SidebarTab;
     icon: IconName;
+    /** Short form shown under the icon. */
+    label: string;
+    /** Full name, for the tooltip and the accessible label. */
     title: string;
   }[] = [
-    { id: "thumbnails", icon: "thumbnails", title: "Pages" },
-    { id: "annotations", icon: "list", title: "Annotations" },
-    { id: "outline", icon: "outline", title: "Bookmarks" },
-    { id: "search", icon: "search", title: "Search" },
+    { id: "thumbnails", icon: "thumbnails", label: "Pages", title: "Pages" },
+    { id: "annotations", icon: "list", label: "Notes", title: "Annotations" },
+    { id: "outline", icon: "outline", label: "Outline", title: "Bookmarks" },
+    { id: "search", icon: "search", label: "Find", title: "Search" },
   ];
 
   const counts = $derived({
-    thumbnails: edits.pages.length,
-    annotations: edits.annots.length,
+    thumbnails: tab.edits.pages.length,
+    annotations: tab.edits.annots.length,
     outline: 0,
-    search: search.results.length,
+    search: tab.search.results.length,
   });
 </script>
 
-<aside class="sidebar">
+<aside class="sidebar" style:width="{viewer.panelWidth.sidebar}px">
   <nav class="tabs" aria-label="Sidebar sections">
-    {#each tabs as tab (tab.id)}
+    {#each tabs as section (section.id)}
       <button
         class="tab"
-        class:active={viewer.sidebarTab === tab.id}
-        title={tab.title}
-        aria-pressed={viewer.sidebarTab === tab.id}
-        onclick={() => (viewer.sidebarTab = tab.id)}
+        class:active={viewer.sidebarTab === section.id}
+        title={section.title}
+        aria-label={section.title}
+        aria-pressed={viewer.sidebarTab === section.id}
+        onclick={() => (viewer.sidebarTab = section.id)}
       >
-        <Icon name={tab.icon} />
-        <span class="tab-label">{tab.title}</span>
-        {#if counts[tab.id] > 0}
-          <span class="count">{counts[tab.id]}</span>
+        <Icon name={section.icon} />
+        <span class="tab-label">{section.label}</span>
+        {#if counts[section.id] > 0}
+          <span class="count">{counts[section.id]}</span>
         {/if}
       </button>
     {/each}
@@ -49,13 +54,13 @@
 
   <div class="body">
     {#if viewer.sidebarTab === "thumbnails"}
-      <ThumbnailStrip />
+      <ThumbnailStrip {tab} />
     {:else if viewer.sidebarTab === "annotations"}
-      <AnnotationList />
+      <AnnotationList {tab} />
     {:else if viewer.sidebarTab === "outline"}
-      <OutlinePanel />
+      <OutlinePanel {tab} />
     {:else}
-      <SearchPanel />
+      <SearchPanel {tab} />
     {/if}
   </div>
 </aside>
@@ -66,9 +71,29 @@
     flex-direction: column;
     flex: none;
     width: var(--sidebar-w);
+    /* Caps the panel against the window, so the viewer can never be squeezed
+       out on a narrow window and no resize listener is needed. */
+    max-width: 40%;
     min-height: 0;
     border-right: 1px solid var(--border);
     background: var(--bg-raised);
+  }
+
+  /*
+   * Too narrow for three columns: overlay the viewer rather than squeeze it.
+   * Purely CSS, so it reverses cleanly when the window grows again and no
+   * state has to be tracked.
+   */
+  @media (max-width: 899px) {
+    .sidebar {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      z-index: 30;
+      max-width: 80%;
+      box-shadow: var(--shadow-3);
+    }
   }
 
   .tabs {

@@ -8,7 +8,7 @@
     | "zoom-in" | "zoom-out" | "fit-width" | "fit-page"
     | "sidebar" | "inspector" | "thumbnails" | "list" | "outline" | "search"
     | "rotate-cw" | "rotate-ccw" | "trash" | "plus" | "merge" | "scissors"
-    | "chevron-left" | "chevron-right" | "chevron-down" | "close" | "check"
+    | "chevron-left" | "chevron-right" | "chevron-up" | "chevron-down" | "close" | "check"
     | "front" | "warning" | "file";
 </script>
 
@@ -60,6 +60,7 @@
     scissors: "M7 5l10 12 M17 5L7 17 M6 19a2 2 0 1 0 0 0.1Z M6 5a2 2 0 1 0 0 0.1Z",
     "chevron-left": "M14 6l-6 6 6 6",
     "chevron-right": "M10 6l6 6-6 6",
+    "chevron-up": "M6 14l6-6 6 6",
     "chevron-down": "M6 10l6 6 6-6",
     close: "M6 6l12 12 M18 6L6 18",
     check: "M5 13l4 4L19 7",

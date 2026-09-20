@@ -6,9 +6,12 @@
    * (which depends on the container's width), which pages are close enough to
    * the viewport to be worth rendering, and the scroll position.
    */
-  import { edits } from "$lib/state/edits.svelte";
-  import { viewer } from "$lib/state/viewer.svelte";
+  import type { DocumentTab } from "$lib/state/workspace.svelte";
   import PageView from "./PageView.svelte";
+
+  let { tab }: { tab: DocumentTab } = $props();
+  const edits = $derived(tab.edits);
+  const view = $derived(tab.view);
 
   /** Gap between pages and around the page column, in CSS pixels. */
   const GUTTER = 16;
@@ -41,7 +44,7 @@
   });
 
   const scale = $derived.by(() => {
-    const zoom = viewer.zoom;
+    const zoom = view.zoom;
     if (typeof zoom === "number") return zoom;
     if (containerWidth === 0) return 1;
 
@@ -57,7 +60,7 @@
 
   // Publish the resolved scale so the toolbar can show a percentage.
   $effect(() => {
-    viewer.scale = scale;
+    view.scale = scale;
   });
 
   /** Indices to actually render. */
@@ -105,7 +108,7 @@
     const root = container;
     if (!root) return;
     const middle = root.scrollTop + root.clientHeight / 2;
-    let best = viewer.currentPage;
+    let best = view.currentPage;
     let bestDistance = Infinity;
     pageEls.forEach((el, index) => {
       if (!el) return;
@@ -116,18 +119,30 @@
         best = index;
       }
     });
-    if (best !== viewer.currentPage) viewer.currentPage = best;
+    if (best !== view.currentPage) view.currentPage = best;
+    view.scrollTop = root.scrollTop;
   }
 
   // ------------------------------------------------------------------ scrolling
 
+  /**
+   * Restore where this tab was. Inactive tabs are unmounted, so without this a
+   * switch back would land at the top of the document.
+   */
   $effect(() => {
-    const unregister = viewer.registerScroller((pageIndex, opts) => {
+    const root = container;
+    if (!root || view.scrollTop === 0) return;
+    root.scrollTop = view.scrollTop;
+  });
+
+  $effect(() => {
+    const unregister = view.registerScroller((pageIndex, opts) => {
       const root = container;
       const el = pageEls[pageIndex];
       if (!root || !el) return;
       root.scrollTo({ top: Math.max(el.offsetTop - GUTTER + (opts?.top ?? 0), 0) });
-      viewer.currentPage = pageIndex;
+      view.currentPage = pageIndex;
+      view.scrollTop = root.scrollTop;
     });
     return unregister;
   });
@@ -141,8 +156,8 @@
   $effect.pre(() => {
     void scale;
     const root = container;
-    const el = pageEls[viewer.currentPage];
-    anchor = root && el ? { index: viewer.currentPage, offset: el.offsetTop - root.scrollTop } : null;
+    const el = pageEls[view.currentPage];
+    anchor = root && el ? { index: view.currentPage, offset: el.offsetTop - root.scrollTop } : null;
   });
 
   $effect(() => {
@@ -166,7 +181,7 @@
   function onWheel(event: WheelEvent) {
     if (!event.ctrlKey && !event.metaKey) return;
     event.preventDefault();
-    viewer.zoomBy(event.deltaY < 0 ? 1 : -1);
+    view.zoomBy(event.deltaY < 0 ? 1 : -1);
   }
 </script>
 
@@ -185,7 +200,7 @@
         class="slot"
         data-index={index}
       >
-        <PageView {entry} pageIndex={index} {scale} visible={visible.has(index)} {onPan} />
+        <PageView {tab} {entry} pageIndex={index} {scale} visible={visible.has(index)} {onPan} />
       </div>
     {/each}
   </div>

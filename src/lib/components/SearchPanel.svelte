@@ -1,6 +1,9 @@
 <script lang="ts">
   /** Full-text search across the document. */
-  import { search } from "$lib/state/search.svelte";
+  import type { DocumentTab } from "$lib/state/workspace.svelte";
+
+  let { tab }: { tab: DocumentTab } = $props();
+  const search = $derived(tab.search);
   import Icon from "./Icon.svelte";
 
   let input: HTMLInputElement | undefined = $state();

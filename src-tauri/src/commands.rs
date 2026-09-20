@@ -181,6 +181,17 @@ pub fn recents_add<R: Runtime>(app: AppHandle<R>, path: String) -> Result<Vec<Fi
     Ok(list)
 }
 
+#[tauri::command]
+pub fn recents_clear<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    let file = recents_path(&app)?;
+    // A missing file is already an empty list.
+    match fs::remove_file(&file) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("{}: {e}", file.display())),
+    }
+}
+
 // ----------------------------------------------------------------- signatures
 
 fn signatures_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {

@@ -15,10 +15,13 @@
     type NoteAnnot,
     type Rotation,
   } from "$lib/annotations/types";
-  import { edits } from "$lib/state/edits.svelte";
   import { images } from "$lib/state/images.svelte";
   import { viewer } from "$lib/state/viewer.svelte";
+  import type { DocumentTab } from "$lib/state/workspace.svelte";
   import Icon from "./Icon.svelte";
+
+  let { tab }: { tab: DocumentTab } = $props();
+  const edits = $derived(tab.edits);
 
   const annot = $derived(edits.selected);
 
@@ -33,7 +36,7 @@
     line: "Line",
     arrow: "Arrow",
     freetext: "Text box",
-    note: "Sticky note",
+    note: "Comment",
     stamp: "Stamp",
   };
 
@@ -73,7 +76,7 @@
   });
 </script>
 
-<aside class="inspector scroll">
+<aside class="inspector scroll" style:width="{viewer.panelWidth.inspector}px">
   {#if !annot}
     <div class="empty muted">
       <Icon name="cursor" size={20} />
@@ -114,7 +117,7 @@
         <textarea
           class="field"
           rows="3"
-          placeholder="Add a note…"
+          placeholder="Add a comment…"
           aria-labelledby="comment"
           value={annot.contents}
           oninput={(event) => patch({ contents: event.currentTarget.value })}
@@ -241,7 +244,7 @@
         <select
           class="field"
           value={annot.icon}
-          aria-label="Note icon"
+          aria-label="Comment icon"
           onchange={(event) => patch({ icon: event.currentTarget.value } as Partial<Annot>)}
         >
           {#each NOTE_ICONS as icon (icon)}
@@ -312,19 +315,37 @@
     gap: 14px;
     flex: none;
     width: var(--inspector-w);
+    /* See the sidebar: keeps the viewer alive on a narrow window. */
+    max-width: 40%;
     min-height: 0;
     padding: 12px;
     border-left: 1px solid var(--border);
     background: var(--bg-raised);
   }
 
+  /* See the sidebar: overlay the viewer instead of competing for width. */
+  @media (max-width: 899px) {
+    .inspector {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      right: 0;
+      z-index: 30;
+      max-width: 80%;
+      box-shadow: var(--shadow-3);
+    }
+  }
+
+  /* Centred in the panel rather than pinned near the top, which left it
+     floating above a large empty area. */
   .empty {
     display: flex;
+    flex: 1;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     gap: 6px;
-    margin-top: 40px;
-    padding: 0 16px;
+    padding: 0 16px 24px;
     text-align: center;
   }
 

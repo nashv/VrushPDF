@@ -1,0 +1,133 @@
+# Builds the installers for every platform and, on a version tag, attaches them
+# to a draft GitHub Release.
+#
+# Tauri cannot cross-compile, so each installer has to be produced on its own
+# operating system — that is the whole reason this runs in CI rather than on a
+# developer's machine.
+#
+# Note this repository is private, so Actions minutes are billed: macOS runners
+# at 10x and Windows at 2x. Use the manual `workflow_dispatch` trigger while
+# iterating on the pipeline and keep tags for real releases.
+name: release
+
+on:
+  # Cut a release: bump the version in package.json, then tag and push.
+  push:
+    tags:
+      - "v*"
+  # Build the same matrix without publishing anything; the installers come back
+  # as workflow artifacts.
+  workflow_dispatch:
+
+jobs:
+  build:
+    permissions:
+      # tauri-action needs this to create the release. If it fails with
+      # "Resource not accessible by integration", enable read/write under
+      # Settings -> Actions -> Workflow permissions.
+      contents: write
+
+    strategy:
+      # One platform failing shouldn't throw away the others' build time.
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest # Apple Silicon
+            args: "--target aarch64-apple-darwin"
+          - platform: macos-13 # Intel
+            args: "--target x86_64-apple-darwin"
+          - platform: windows-latest
+            args: ""
+          - platform: ubuntu-22.04
+            args: ""
+          # arm64 Linux needs the `ubuntu-22.04-arm` runner, which GitHub only
+          # offers on public repositories. Uncomment if this repo goes public —
+          # the QEMU alternative takes about an hour a build.
+          # - platform: ubuntu-22.04-arm
+          #   args: ""
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux build dependencies
+        if: startsWith(matrix.platform, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            xdg-utils
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # Only the macOS jobs build for a named target.
+          targets: ${{ startsWith(matrix.platform, 'macos') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+          # Otherwise the four jobs would fight over one cache key.
+          key: ${{ matrix.platform }}
+
+      # `npm ci` also runs the prepare script, which copies pdf.js's CMap tables
+      # and standard fonts into static/ so the app works offline.
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run check
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        id: tauri
+        with:
+          args: ${{ matrix.args }}
+          # Release inputs are empty on a manual run, which makes the action
+          # build without publishing.
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && 'v__VERSION__' || '' }}
+          releaseName: ${{ startsWith(github.ref, 'refs/tags/') && 'PDF Editor v__VERSION__' || '' }}
+          releaseBody: ${{ startsWith(github.ref, 'refs/tags/') && 'Download the installer for your platform below. These builds are unsigned — see the README for how to get past Gatekeeper and SmartScreen.' || '' }}
+          # Draft so the notes can be written and the assets checked before it
+          # goes out.
+          releaseDraft: true
+          prerelease: false
+
+      # Gather the bundles into one directory first. The action reports them as
+      # a JSON array of absolute paths, which upload-artifact's newline-separated
+      # `path` input cannot consume directly. `shell: bash` covers the Windows
+      # runner too, and node does the copying so the same code runs everywhere.
+      - name: Collect installers
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        shell: bash
+        env:
+          ARTIFACT_PATHS: ${{ steps.tauri.outputs.artifactPaths }}
+        run: |
+          mkdir -p dist-artifacts
+          node -e "
+            const fs = require('node:fs');
+            const path = require('node:path');
+            for (const from of JSON.parse(process.env.ARTIFACT_PATHS)) {
+              const to = path.join('dist-artifacts', path.basename(from));
+              fs.cpSync(from, to, { recursive: true });
+              console.log(path.basename(from));
+            }
+          "
+
+      - name: Upload installers as artifacts
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: installers-${{ matrix.platform }}
+          path: dist-artifacts/
+          if-no-files-found: error

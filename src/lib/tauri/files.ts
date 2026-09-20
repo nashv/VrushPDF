@@ -42,6 +42,7 @@ export const fileMeta = (path: string) => invoke<FileMeta>("file_meta", { path }
 
 export const recentsGet = () => invoke<FileMeta[]>("recents_get");
 export const recentsAdd = (path: string) => invoke<FileMeta[]>("recents_add", { path });
+export const recentsClear = () => invoke<void>("recents_clear");
 
 // ------------------------------------------------------------------ dialogs
 

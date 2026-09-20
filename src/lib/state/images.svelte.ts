@@ -3,9 +3,11 @@
  *
  * Stamp annotations reference an image by id rather than carrying pixels, so
  * placing the same signature twenty times embeds one image. Ids are prefixed
- * `sig:` for saved signatures (persisted under the app data dir) and `img:` for
- * one-off image stamps (session-only, but still embedded on save).
+ * `sig:` for saved signatures (persisted under the app data dir), `img:` for
+ * one-off image stamps (session-only, but still embedded on save) and `std:`
+ * for the built-in stamps, which are regenerated at every launch.
  */
+import { renderStandardStamp, STANDARD_STAMPS } from "$lib/stamps";
 import {
   signatureDelete,
   signatureRead,
@@ -50,6 +52,16 @@ class ImageStore {
     return this.all.filter((i) => i.isSignature);
   }
 
+  /** The built-in stamps. */
+  get standard(): StampImage[] {
+    return this.all.filter((i) => i.id.startsWith("std:"));
+  }
+
+  /** Images the user brought in from disk. */
+  get uploaded(): StampImage[] {
+    return this.all.filter((i) => !i.isSignature && !i.id.startsWith("std:"));
+  }
+
   get(id: string): StampImage | null {
     return this.#items.get(id) ?? null;
   }
@@ -91,6 +103,27 @@ class ImageStore {
     }
   }
 
+  /**
+   * Draw and register the built-in stamps. Called once when the app starts.
+   *
+   * Session-only by design: they are cheap to redraw and keeping them off disk
+   * means a colour change here takes effect without migrating anything.
+   */
+  async loadStandard() {
+    await Promise.all(
+      STANDARD_STAMPS.map(async (stamp) => {
+        try {
+          const bytes = await renderStandardStamp(stamp);
+          await this.#register(`std:${stamp.id}`, stamp.label, bytes, "image/png", false);
+        } catch (err) {
+          // One stamp failing should not cost the user the others, but it
+          // should not vanish either — a missing stamp is otherwise invisible.
+          console.warn(`could not draw the ${stamp.label} stamp:`, err);
+        }
+      }),
+    );
+  }
+
   /** Persist a freshly drawn signature and register it for immediate use. */
   async saveSignature(name: string, png: Uint8Array): Promise<StampImage> {
     const rawId = crypto.randomUUID();
@@ -113,16 +146,6 @@ class ImageStore {
     const bytes = await readFile(path);
     const name = path.split("/").pop() ?? "Image";
     return this.#register(`img:${crypto.randomUUID()}`, name, bytes, mimeFor(path), false);
-  }
-
-  /** Drop session-only stamps; saved signatures stay loaded across documents. */
-  clearTransient() {
-    const next = new Map<string, StampImage>();
-    for (const [id, item] of this.#items) {
-      if (item.isSignature) next.set(id, item);
-      else URL.revokeObjectURL(item.url);
-    }
-    this.#items = next;
   }
 }
 

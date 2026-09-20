@@ -1,50 +1,65 @@
 <script lang="ts">
   /**
    * Page thumbnails, plus the page-level operations: rotate, delete, reorder by
-   * drag, keep-a-range, and merge another PDF in.
+   * drag or with the move buttons, keep-a-range, insert a blank page, and merge
+   * another PDF in.
    *
    * Thumbnails render lazily and are cached per (page, rotation) so scrolling a
    * long document doesn't re-rasterise everything.
    */
   import type { PageEntry } from "$lib/annotations/types";
   import { renderThumbnail } from "$lib/pdf/render";
-  import { doc } from "$lib/state/doc.svelte";
-  import { edits } from "$lib/state/edits.svelte";
+  import { createReorder } from "$lib/reorder.svelte";
   import { session } from "$lib/state/session.svelte";
-  import { viewer } from "$lib/state/viewer.svelte";
+  import type { DocumentTab } from "$lib/state/workspace.svelte";
   import Icon from "./Icon.svelte";
+
+  let { tab }: { tab: DocumentTab } = $props();
+  const doc = $derived(tab.doc);
+  const edits = $derived(tab.edits);
+  const view = $derived(tab.view);
 
   const pages = $derived(edits.pages);
 
-  /** Multi-select for the page operations; empty means "the current page". */
-  let picked = $state.raw(new Set<string>());
-  let dragFrom = $state<number | null>(null);
-  let dropAt = $state<number | null>(null);
+  /**
+   * Multi-select for the page operations; empty means "the current page". Kept
+   * on the tab so the Pages menu acts on the same pages these buttons do.
+   */
+  const picked = $derived(edits.pickedPageIds);
 
-  const target = $derived.by(() => {
-    if (picked.size > 0) return pages.filter((p) => picked.has(p.id));
-    const current = pages[viewer.currentPage];
-    return current ? [current] : [];
+  /** The scrolling grid, so a drag near its edge scrolls the list. */
+  let grid = $state<HTMLElement | null>(null);
+
+  const reorder = createReorder({
+    axis: "y",
+    itemSelector: ".tile",
+    scroller: () => grid,
+    onDrop: (from, to) => {
+      edits.movePage(from, to);
+      view.goToPage(to);
+    },
   });
 
-  const targetIds = $derived(target.map((p) => p.id));
+  const targetIds = $derived(tab.targetPageIds);
 
   function selectPage(entry: PageEntry, index: number, event: MouseEvent) {
+    // The click that closes a drag must not also change the selection.
+    if (reorder.justDragged) return;
     if (event.metaKey || event.ctrlKey) {
       const next = new Set(picked);
       if (next.has(entry.id)) next.delete(entry.id);
       else next.add(entry.id);
-      picked = next;
+      edits.pickedPageIds = next;
       return;
     }
     if (event.shiftKey && picked.size > 0) {
       const anchor = pages.findIndex((p) => picked.has(p.id));
       const [lo, hi] = anchor < index ? [anchor, index] : [index, anchor];
-      picked = new Set(pages.slice(lo, hi + 1).map((p) => p.id));
+      edits.pickedPageIds = new Set(pages.slice(lo, hi + 1).map((p) => p.id));
       return;
     }
-    picked = new Set();
-    viewer.goToPage(index);
+    edits.clearPickedPages();
+    view.goToPage(index);
   }
 
   // --------------------------------------------------------------- thumbnails
@@ -95,35 +110,6 @@
     cache.clear();
   });
 
-  // ------------------------------------------------------------ reorder by drag
-
-  function onDragStart(index: number, event: DragEvent) {
-    dragFrom = index;
-    event.dataTransfer?.setData("text/plain", String(index));
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
-  }
-
-  function onDragOver(index: number, event: DragEvent) {
-    if (dragFrom === null) return;
-    event.preventDefault();
-    dropAt = index;
-  }
-
-  function onDrop(index: number, event: DragEvent) {
-    event.preventDefault();
-    const from = dragFrom;
-    dragFrom = null;
-    dropAt = null;
-    if (from === null || from === index) return;
-    edits.movePage(from, index);
-    viewer.goToPage(index);
-  }
-
-  function onDragEnd() {
-    dragFrom = null;
-    dropAt = null;
-  }
-
   // ------------------------------------------------------------------ actions
 
   function rotate(delta: 90 | -90) {
@@ -137,7 +123,7 @@
       return;
     }
     edits.deletePages(targetIds);
-    picked = new Set();
+    edits.clearPickedPages();
   }
 
   /** Reduce the document to the picked span. */
@@ -145,14 +131,13 @@
     if (picked.size === 0) return;
     const indices = pages.flatMap((p, i) => (picked.has(p.id) ? [i] : []));
     edits.extractRange(Math.min(...indices), Math.max(...indices));
-    picked = new Set();
+    edits.clearPickedPages();
   }
 
-  const insertAt = $derived(
-    picked.size > 0
-      ? Math.max(...pages.flatMap((p, i) => (picked.has(p.id) ? [i] : []))) + 1
-      : viewer.currentPage + 1,
-  );
+  const insertAt = $derived(tab.insertAt);
+
+  const canMoveUp = $derived(edits.canMovePages(targetIds, -1));
+  const canMoveDown = $derived(edits.canMovePages(targetIds, 1));
 </script>
 
 <div class="panel">
@@ -163,6 +148,34 @@
     <button class="btn square" title="Rotate right" onclick={() => rotate(90)}>
       <Icon name="rotate-cw" />
     </button>
+    <div class="divider"></div>
+
+    <button
+      class="btn square"
+      title="Move up"
+      disabled={!canMoveUp}
+      onclick={() => edits.movePages(targetIds, -1)}
+    >
+      <Icon name="chevron-up" />
+    </button>
+    <button
+      class="btn square"
+      title="Move down"
+      disabled={!canMoveDown}
+      onclick={() => edits.movePages(targetIds, 1)}
+    >
+      <Icon name="chevron-down" />
+    </button>
+
+    <div class="divider"></div>
+
+    <button
+      class="btn square"
+      title="Insert a blank page after this one"
+      onclick={() => session.addBlankPage(insertAt)}
+    >
+      <Icon name="plus" />
+    </button>
     <button
       class="btn square"
       title="Keep only the selected pages"
@@ -171,7 +184,11 @@
     >
       <Icon name="scissors" />
     </button>
-    <button class="btn square" title="Insert another PDF here" onclick={() => session.mergePdf(insertAt)}>
+    <button
+      class="btn square"
+      title="Insert another PDF after this page"
+      onclick={() => session.mergePdf(insertAt)}
+    >
       <Icon name="merge" />
     </button>
     <span class="spacer"></span>
@@ -188,30 +205,28 @@
   {#if picked.size > 0}
     <div class="selection">
       {picked.size} page{picked.size === 1 ? "" : "s"} selected
-      <button class="link" onclick={() => (picked = new Set())}>Clear</button>
+      <button class="link" onclick={() => edits.clearPickedPages()}>Clear</button>
     </div>
   {/if}
 
-  <div class="grid scroll">
+  <div class="grid scroll" bind:this={grid}>
     {#each pages as entry, index (entry.id)}
       {@const thumb = thumbOf(entry)}
       {@const dims = edits.displayDims(entry)}
       <!--
-        The drag handlers live on the tile so the whole thumbnail is a drag
-        target; activation and selection are handled by the real button inside.
+        The drag lives on the tile so the whole thumbnail is a handle;
+        activation and selection are handled by the real button inside.
       -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         class="tile"
-        class:current={index === viewer.currentPage && picked.size === 0}
+        class:current={index === view.currentPage && picked.size === 0}
         class:picked={picked.has(entry.id)}
-        class:drop-before={dropAt === index && dragFrom !== null && dragFrom > index}
-        class:drop-after={dropAt === index && dragFrom !== null && dragFrom < index}
-        draggable="true"
-        ondragstart={(event) => onDragStart(index, event)}
-        ondragover={(event) => onDragOver(index, event)}
-        ondrop={(event) => onDrop(index, event)}
-        ondragend={onDragEnd}
+        class:dragging={reorder.from === index}
+        class:drop-before={reorder.to === index && reorder.from !== null && reorder.from > index}
+        class:drop-after={reorder.to === index && reorder.from !== null && reorder.from < index}
+        data-reorder-index={index}
+        onpointerdown={(event) => reorder.down(index, event)}
         {@attach (node) => lazyThumb(node, entry)}
       >
         <button
@@ -219,7 +234,7 @@
           style:aspect-ratio="{dims.width} / {dims.height}"
           onclick={(event) => selectPage(entry, index, event)}
           aria-label="Page {index + 1}"
-          aria-current={index === viewer.currentPage}
+          aria-current={index === view.currentPage}
         >
           {#if thumb}
             <img src={thumb.url} alt="" />
@@ -270,7 +285,9 @@
 
   .grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    /* Tracks the sidebar width: widening it adds columns rather than just
+       stretching two. At the default 288px this still resolves to two. */
+    grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
     gap: 10px;
     padding: 10px;
     min-height: 0;
@@ -295,7 +312,14 @@
     box-shadow: var(--shadow-1);
   }
 
+  .tile.dragging {
+    opacity: 0.4;
+  }
+
   .shot img {
+    /* Stop WebKit starting a native image drag, which the window's file-drop
+       handler would swallow along with the reorder. */
+    -webkit-user-drag: none;
     display: block;
     width: 100%;
     height: 100%;

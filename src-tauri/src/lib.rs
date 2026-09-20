@@ -14,6 +14,7 @@ pub fn run() {
             commands::resolve_cli_file,
             commands::recents_get,
             commands::recents_add,
+            commands::recents_clear,
             commands::signatures_list,
             commands::signature_read,
             commands::signature_save,

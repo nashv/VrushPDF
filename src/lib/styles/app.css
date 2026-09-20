@@ -29,12 +29,43 @@
 
   --radius: 6px;
   --radius-lg: 10px;
+  /* Toolbar/button height. macOS runs tighter chrome than Windows or GNOME. */
+  --control-h: 28px;
+  --font-size: 13px;
+  --font-smoothing: antialiased;
 
   --toolbar-h: 48px;
-  --sidebar-w: 260px;
+  /* Wide enough for four labelled tabs side by side without them colliding. */
+  /* Panel defaults; the live values live in the viewer store and are resizable. */
+  --sidebar-w: 288px;
   --inspector-w: 272px;
 
   color-scheme: light dark;
+}
+
+/*
+ * Per-platform metrics. The `:root` block above is the macOS set; these two
+ * override it. `data-platform` is set by the inline script in app.html so this
+ * lands on the first paint.
+ */
+:root[data-platform="win"] {
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-size: 14px;
+  /* Fluent corners are tighter and its controls taller than Aqua's. */
+  --radius: 4px;
+  --radius-lg: 8px;
+  --control-h: 30px;
+  /* Windows expects subpixel rendering; `antialiased` looks thin and grey. */
+  --font-smoothing: auto;
+}
+
+:root[data-platform="linux"] {
+  --font-ui: system-ui, Cantarell, Ubuntu, "Noto Sans", sans-serif;
+  --font-size: 14px;
+  --radius: 6px;
+  --radius-lg: 9px;
+  --control-h: 30px;
+  --font-smoothing: auto;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -65,6 +96,23 @@
   }
 }
 
+/*
+ * Follow the accent colour the user chose in their system settings, which is
+ * most of what makes an app feel like it belongs to the desktop. Behind a
+ * feature query, so engines without the system colour keep the blues above.
+ *
+ * Must come after the dark-mode block: that re-declares --accent, and at equal
+ * specificity the later rule wins, so placing this earlier meant the system
+ * accent was silently ignored in dark mode.
+ */
+@supports (color: AccentColor) {
+  :root {
+    --accent: AccentColor;
+    --accent-text: AccentColorText;
+    --accent-soft: color-mix(in srgb, AccentColor 18%, transparent);
+  }
+}
+
 * {
   box-sizing: border-box;
 }
@@ -77,11 +125,11 @@ body {
 
 body {
   font-family: var(--font-ui);
-  font-size: 13px;
+  font-size: var(--font-size);
   line-height: 1.45;
   color: var(--text);
   background: var(--bg);
-  -webkit-font-smoothing: antialiased;
+  -webkit-font-smoothing: var(--font-smoothing);
   /* A desktop window should not rubber-band or text-select like a web page. */
   overscroll-behavior: none;
   user-select: none;
@@ -116,7 +164,7 @@ select {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 28px;
+  height: var(--control-h);
   padding: 0 9px;
   border-radius: var(--radius);
   border: 1px solid transparent;
@@ -138,7 +186,7 @@ select {
 }
 
 .btn.square {
-  width: 28px;
+  width: var(--control-h);
   padding: 0;
 }
 
@@ -245,4 +293,14 @@ textarea.field {
 .page-stack:not(.tool-passthrough) .textLayer {
   pointer-events: none;
   user-select: none;
+}
+
+/*
+ * Set on <html> while a panel is being resized: keeps the col-resize cursor as
+ * the pointer crosses the viewer, and stops the drag selecting text.
+ */
+.resizing,
+.resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }

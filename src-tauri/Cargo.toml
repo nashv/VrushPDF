@@ -1,8 +1,10 @@
 [package]
 name = "pdfeditor"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "A desktop PDF viewer and annotation editor"
+authors = ["nashv"]
+license = "MIT"
+repository = "https://github.com/nashv/PDFEditor"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

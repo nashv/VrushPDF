@@ -17,7 +17,7 @@ import {
   type Rect,
   type Rotation,
 } from "$lib/annotations/types";
-import { doc, MAIN_DOC, type SourceDoc } from "./doc.svelte";
+import { type DocStore, type SourceDoc } from "./doc.svelte";
 
 export type { PageEntry };
 
@@ -43,11 +43,31 @@ export function planFor(source: SourceDoc): PageEntry[] {
   }));
 }
 
-class EditStore {
+export class EditStore {
+  /**
+   * The tab's document store. Injected rather than imported: there is one
+   * `EditStore` per tab and it must resolve page sizes against *its own*
+   * document, not a global one.
+   */
+  #docs: DocStore;
+
+  constructor(docs: DocStore) {
+    this.#docs = docs;
+  }
+
   pages = $state<PageEntry[]>([]);
   annots = $state<Annot[]>([]);
   selectedId = $state<string | null>(null);
   dirty = $state(false);
+
+  /**
+   * Pages ticked in the thumbnail strip, empty when nothing is ticked.
+   *
+   * Lives here rather than inside the strip because the Pages menu operates on
+   * the same target, and the menu cannot see a component's local state.
+   * `DocumentTab.targetPageIds` applies the "empty means the current page" rule.
+   */
+  pickedPageIds = $state.raw<Set<string>>(new Set());
 
   #undo: HistoryEntry[] = $state([]);
   #redo: HistoryEntry[] = $state([]);
@@ -105,7 +125,7 @@ class EditStore {
    * unrotated size makes a landscape page overflow its container.
    */
   displayDims(entry: PageEntry): { width: number; height: number } {
-    const src = doc.source(entry.sourceDocId);
+    const src = this.#docs.source(entry.sourceDocId);
     const page = src?.pages[entry.srcIndex] ?? { width: 612, height: 792, rotate: 0 };
     const total = (((page.rotate + entry.rotation) % 360) + 360) % 360;
     return total % 180 === 0
@@ -233,6 +253,10 @@ class EditStore {
 
   // ---------------------------------------------------------------- page plan
 
+  clearPickedPages() {
+    if (this.pickedPageIds.size > 0) this.pickedPageIds = new Set();
+  }
+
   rotatePages(pageIds: string[], delta: 90 | -90) {
     const ids = new Set(pageIds);
     this.commit(pageIds.length > 1 ? "Rotate pages" : "Rotate page", () => {
@@ -254,7 +278,62 @@ class EditStore {
         this.selectedId = null;
       }
     });
-    void doc.pruneSources(new Set(this.pages.map((p) => p.sourceDocId)));
+    void this.#docs.pruneSources(new Set(this.pages.map((p) => p.sourceDocId)));
+  }
+
+  /** Plan indices of `pageIds`, ascending. */
+  #indicesOf(pageIds: string[]): number[] {
+    const ids = new Set(pageIds);
+    return this.pages.flatMap((p, i) => (ids.has(p.id) ? [i] : []));
+  }
+
+  /**
+   * False when the selection is already against that end of the document.
+   *
+   * The buttons and menu items disable on this, so a selection that cannot move
+   * looks inert rather than silently ignoring a click.
+   */
+  canMovePages(pageIds: string[], delta: -1 | 1): boolean {
+    const indices = this.#indicesOf(pageIds);
+    if (indices.length === 0) return false;
+    return delta < 0 ? indices[0] > 0 : indices.at(-1)! < this.pages.length - 1;
+  }
+
+  /**
+   * Slide the selected pages one slot, as one undo step.
+   *
+   * Moving up walks the indices ascending and moving down walks them
+   * descending: each page then lands in a slot the not-yet-moved ones haven't
+   * occupied, so a multi-page selection travels as a block and keeps its
+   * internal order.
+   */
+  movePages(pageIds: string[], delta: -1 | 1) {
+    if (!this.canMovePages(pageIds, delta)) return;
+    const indices = this.#indicesOf(pageIds);
+    const order = delta < 0 ? indices : [...indices].reverse();
+
+    this.commit(indices.length > 1 ? "Move pages" : "Move page", () => {
+      for (const index of order) {
+        const [entry] = this.pages.splice(index, 1);
+        this.pages.splice(index + delta, 0, entry);
+      }
+    });
+  }
+
+  /** Move the selected pages to the very start or end, keeping their order. */
+  movePagesTo(pageIds: string[], position: "start" | "end") {
+    const indices = this.#indicesOf(pageIds);
+    if (indices.length === 0) return;
+    // Already there: nothing to do, and no empty undo step.
+    const atStart = indices.every((index, i) => index === i);
+    const atEnd = indices.every((index, i) => index === this.pages.length - indices.length + i);
+    if (position === "start" ? atStart : atEnd) return;
+
+    this.commit(indices.length > 1 ? "Move pages" : "Move page", () => {
+      const moved = indices.map((i) => this.pages[i]);
+      const rest = this.pages.filter((_, i) => !indices.includes(i));
+      this.pages = position === "start" ? [...moved, ...rest] : [...rest, ...moved];
+    });
   }
 
   /** Move the page at `from` so it lands at index `to`. */
@@ -277,7 +356,7 @@ class EditStore {
       this.pages = this.pages.filter((p) => keep.has(p.id));
       this.annots = this.annots.filter((a) => keep.has(a.pageId));
     });
-    void doc.pruneSources(new Set(this.pages.map((p) => p.sourceDocId)));
+    void this.#docs.pruneSources(new Set(this.pages.map((p) => p.sourceDocId)));
   }
 
   // ------------------------------------------------------------------ lifecycle
@@ -287,6 +366,7 @@ class EditStore {
     this.pages = pages;
     this.annots = annots;
     this.selectedId = null;
+    this.pickedPageIds = new Set();
     this.#undo = [];
     this.#redo = [];
     this.#pending = null;
@@ -297,6 +377,3 @@ class EditStore {
     this.dirty = false;
   }
 }
-
-export const edits = new EditStore();
-

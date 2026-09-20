@@ -53,22 +53,22 @@
   } from "$lib/pdf/render";
   import { clearSelection, mountTextLayer, selectionOnPage, type TextLayerHandle } from "$lib/pdf/textlayer";
   import type { PDFPageProxy } from "$lib/pdf/pdfjs";
-  import { doc } from "$lib/state/doc.svelte";
-  import { edits } from "$lib/state/edits.svelte";
   import { images } from "$lib/state/images.svelte";
-  import { search } from "$lib/state/search.svelte";
   import { MARKUP_TOOLS, viewer } from "$lib/state/viewer.svelte";
+  import type { DocumentTab } from "$lib/state/workspace.svelte";
 
   import AnnotLayer from "./AnnotLayer.svelte";
   import AnnotWidgets from "./AnnotWidgets.svelte";
 
   let {
+    tab,
     entry,
     pageIndex,
     scale,
     visible,
     onPan,
   }: {
+    tab: DocumentTab;
     entry: PageEntry;
     pageIndex: number;
     scale: number;
@@ -76,6 +76,11 @@
     visible: boolean;
     onPan?: (dx: number, dy: number) => void;
   } = $props();
+
+  const doc = $derived(tab.doc);
+  const edits = $derived(tab.edits);
+  const search = $derived(tab.search);
+  const view = $derived(tab.view);
 
   let page = $state.raw<PDFPageProxy | null>(null);
   let canvasEl: HTMLCanvasElement | undefined = $state();
@@ -277,7 +282,7 @@
     const p = pointOf(event);
     if (!p) return;
 
-    viewer.currentPage = pageIndex;
+    view.currentPage = pageIndex;
     const style = viewer.style;
 
     switch (tool) {

@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!--
+    Source of truth for every app icon. Regenerate the .icns/.ico/PNG set with:
+        npx tauri icon src-tauri/app-icon.svg
+
+    A sheet of paper with a turned corner and a mark-up stroke across it, on a
+    rounded-square field. Kept to three flat shapes and one accent so it still
+    reads at 16px in the dock and the Windows taskbar.
+  -->
+  <defs>
+    <linearGradient id="field" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#1d4ed8"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1024" height="1024" rx="228" fill="url(#field)"/>
+
+  <!-- The sheet, with the top-right corner folded away. -->
+  <path d="M296 216h300l176 176v416a56 56 0 0 1-56 56H296a56 56 0 0 1-56-56V272a56 56 0 0 1 56-56z"
+        fill="#ffffff"/>
+  <path d="M596 216l176 176H636a40 40 0 0 1-40-40V216z" fill="#bfdbfe"/>
+
+  <!-- Two text lines and a highlighter stroke through the third. -->
+  <rect x="336" y="486" width="352" height="34" rx="17" fill="#cbd5e1"/>
+  <rect x="336" y="576" width="352" height="34" rx="17" fill="#cbd5e1"/>
+  <rect x="336" y="666" width="232" height="34" rx="17" fill="#cbd5e1"/>
+  <rect x="306" y="656" width="300" height="54" rx="27" fill="#fbbf24" opacity="0.85"/>
+</svg>

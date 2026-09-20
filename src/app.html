@@ -4,7 +4,19 @@
     <meta charset="utf-8" />
     <link rel="icon" href="%sveltekit.assets%/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Tauri + SvelteKit + Typescript App</title>
+    <title>PDF Editor</title>
+    <script>
+      /*
+       * Tag the platform before the first paint, so the per-platform tokens in
+       * app.css apply to the first frame instead of flashing macOS metrics and
+       * then correcting. `lib/platform.ts` reads this back.
+       */
+      (function () {
+        var ua = navigator.userAgent;
+        document.documentElement.dataset.platform =
+          ua.indexOf("Mac") !== -1 ? "mac" : ua.indexOf("Win") !== -1 ? "win" : "linux";
+      })();
+    </script>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">

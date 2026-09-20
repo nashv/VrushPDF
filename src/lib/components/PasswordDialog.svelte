@@ -15,17 +15,16 @@
 
   async function submit(event: Event) {
     event.preventDefault();
-    const target = path;
-    if (!target) return;
+    if (!path) return;
     const attempt = password;
     password = "";
-    await session.openPath(target, attempt);
+    // The session remembers which tab the file was being opened into.
+    await session.submitPassword(attempt);
   }
 
   function cancel() {
-    session.passwordFor = null;
-    session.passwordWrong = false;
     password = "";
+    session.cancelPassword();
   }
 
   function onKeydown(event: KeyboardEvent) {

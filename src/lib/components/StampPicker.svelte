@@ -8,7 +8,9 @@
   let { onClose, onDraw }: { onClose: () => void; onDraw: () => void } = $props();
 
   const signatures = $derived(images.signatures);
-  const others = $derived(images.all.filter((i) => !i.isSignature));
+  const standard = $derived(images.standard);
+  /** Excludes the built-ins, which have their own section. */
+  const others = $derived(images.uploaded);
 
   function arm(id: string, isSignature: boolean) {
     viewer.setTool(isSignature ? "signature" : "stamp");
@@ -69,6 +71,20 @@
   <button class="action" onclick={onDraw}>
     <Icon name="signature" /> Draw a new signature…
   </button>
+
+  {#if standard.length > 0}
+    <div class="head">Standard</div>
+    <ul>
+      {#each standard as item (item.id)}
+        <li>
+          <button class="entry" onclick={() => arm(item.id, false)} title="Place {item.name}">
+            <img src={item.url} alt={item.name} />
+            <span class="entry-name">{item.name}</span>
+          </button>
+        </li>
+      {/each}
+    </ul>
+  {/if}
 
   {#if others.length > 0}
     <div class="head">Images</div>

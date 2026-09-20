@@ -1,15 +1,8 @@
 <script lang="ts">
   /** Shown when no document is open: drop target plus recent files. */
-  import { onMount } from "svelte";
-  import { recentsGet, type FileMeta } from "$lib/tauri/files";
+  import { recents } from "$lib/state/recents.svelte";
   import { session } from "$lib/state/session.svelte";
   import Icon from "./Icon.svelte";
-
-  let recents = $state.raw<FileMeta[]>([]);
-
-  onMount(async () => {
-    recents = await recentsGet().catch(() => []);
-  });
 
   function sizeOf(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
@@ -31,11 +24,11 @@
     <p class="drop muted">…or drop one onto this window.</p>
   </div>
 
-  {#if recents.length > 0}
+  {#if recents.list.length > 0}
     <div class="recents">
       <h2>Recent</h2>
       <ul>
-        {#each recents as file (file.path)}
+        {#each recents.list as file (file.path)}
           <li>
             <button class="recent" onclick={() => session.openPath(file.path)} title={file.path}>
               <Icon name="file" size={15} />

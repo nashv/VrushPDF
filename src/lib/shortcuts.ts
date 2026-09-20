@@ -3,11 +3,16 @@
  *
  * Keys are ignored while focus is in a text field, so typing in a comment or a
  * text box never switches tools.
+ *
+ * Once the native menu is up (see `menu/appMenu.svelte.ts`) the OS owns every
+ * ⌘/Ctrl combination the menu declares as an accelerator, and this file steps
+ * aside for those so nothing fires twice. Without the menu — the browser dev
+ * server, the UI test harness — it keeps handling them itself.
  */
-import { edits } from "$lib/state/edits.svelte";
-import { search } from "$lib/state/search.svelte";
+import { nativeMenuActive } from "$lib/menu/appMenu.svelte";
 import { session } from "$lib/state/session.svelte";
 import { viewer, type Tool } from "$lib/state/viewer.svelte";
+import { workspace } from "$lib/state/workspace.svelte";
 
 const TOOL_KEYS: Record<string, Tool> = {
   v: "select",
@@ -39,13 +44,47 @@ export function handleShortcut(event: KeyboardEvent) {
   const mod = event.metaKey || event.ctrlKey;
   const key = event.key;
 
+  // Everything below the tab shortcuts acts on the focused document.
+  const tab = workspace.active;
+
+  // Ctrl+Tab cycles tabs even on macOS, where it is the platform convention
+  // and does not collide with the Cmd-based bindings.
+  if (event.ctrlKey && key === "Tab") {
+    if (nativeMenuActive()) return; // Window ▸ Next/Previous Tab
+    event.preventDefault();
+    workspace.step(event.shiftKey ? -1 : 1);
+    return;
+  }
+
   // Command combinations work everywhere; bare letters do not.
   if (mod) {
     const lower = key.toLowerCase();
+
+    // Tab switching has no menu item of its own — nine numbered entries would
+    // only clutter the Window menu — so these stay ours either way.
+    if (/^[1-9]$/.test(lower)) {
+      event.preventDefault();
+      workspace.activateNumber(Number(lower));
+      return;
+    }
+    if ((lower === "[" || lower === "]") && event.shiftKey) {
+      event.preventDefault();
+      workspace.step(lower === "]" ? 1 : -1);
+      return;
+    }
+
+    if (nativeMenuActive()) return;
+
     switch (lower) {
       case "o":
+      case "t":
+      case "n":
         event.preventDefault();
         void session.openViaDialog();
+        return;
+      case "w":
+        event.preventDefault();
+        if (tab) void session.requestClose(tab);
         return;
       case "s":
         event.preventDefault();
@@ -53,8 +92,8 @@ export function handleShortcut(event: KeyboardEvent) {
         return;
       case "z":
         event.preventDefault();
-        if (event.shiftKey) edits.redo();
-        else edits.undo();
+        if (event.shiftKey) tab?.edits.redo();
+        else tab?.edits.undo();
         return;
       case "f":
         event.preventDefault();
@@ -63,26 +102,22 @@ export function handleShortcut(event: KeyboardEvent) {
         return;
       case "g":
         event.preventDefault();
-        if (event.shiftKey) search.previous();
-        else search.next();
+        if (event.shiftKey) tab?.search.previous();
+        else tab?.search.next();
         return;
       case "=":
       case "+":
         event.preventDefault();
-        viewer.zoomBy(1);
+        tab?.view.zoomBy(1);
         return;
       case "-":
         event.preventDefault();
-        viewer.zoomBy(-1);
+        tab?.view.zoomBy(-1);
         return;
       case "0":
         event.preventDefault();
-        viewer.zoomTo("fit-page");
-        return;
-      case "1":
-        // ⌘1 is "actual size", distinct from the bare 1 highlight shortcut.
-        event.preventDefault();
-        viewer.zoomTo(1);
+        // ⌥ makes it "actual size"; ⌘1 is taken by tab switching.
+        tab?.view.zoomTo(event.altKey ? 1 : "fit-page");
         return;
       case "\\":
         event.preventDefault();
@@ -96,35 +131,35 @@ export function handleShortcut(event: KeyboardEvent) {
 
   if (key === "Escape") {
     // Escape backs out: first the selection, then the tool.
-    if (edits.selectedId) edits.select(null);
+    if (tab?.edits.selectedId) tab.edits.select(null);
     else viewer.setTool("select");
     return;
   }
 
-  if ((key === "Backspace" || key === "Delete") && edits.selectedId) {
+  if ((key === "Backspace" || key === "Delete") && tab?.edits.selectedId) {
     event.preventDefault();
-    edits.remove(edits.selectedId);
+    tab.edits.remove(tab.edits.selectedId);
     return;
   }
 
   if (key === "PageDown") {
     event.preventDefault();
-    viewer.goToPage(viewer.currentPage + 1);
+    tab?.view.goToPage(tab.view.currentPage + 1);
     return;
   }
   if (key === "PageUp") {
     event.preventDefault();
-    viewer.goToPage(viewer.currentPage - 1);
+    tab?.view.goToPage(tab.view.currentPage - 1);
     return;
   }
   if (key === "Home") {
     event.preventDefault();
-    viewer.goToPage(0);
+    tab?.view.goToPage(0);
     return;
   }
   if (key === "End") {
     event.preventDefault();
-    viewer.goToPage(edits.pages.length - 1);
+    tab?.view.goToPage(tab.edits.pages.length - 1);
     return;
   }
 
