@@ -9,6 +9,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
@@ -143,6 +144,46 @@ pub fn resolve_cli_file() -> Option<String> {
         let p = Path::new(arg);
         p.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf")) && p.is_file()
     })
+}
+
+/*
+ * Finder "Open With" on macOS. The system hands the files over while the app is
+ * still starting, before the page has subscribed to `pdf://open-paths`, and an
+ * event nobody is listening for is simply lost. So they wait here until the
+ * page asks for them; after that, `lib.rs` emits them straight away.
+ */
+#[derive(Default)]
+pub struct OpenedFiles(Mutex<Opened>);
+
+#[derive(Default)]
+struct Opened {
+    /// The page is listening, so new files can be emitted rather than queued.
+    listening: bool,
+    pending: Vec<String>,
+}
+
+impl OpenedFiles {
+    /// Either queues `paths` or, once the page is listening, returns them to
+    /// be emitted. One lock covers both, so none can slip between the page
+    /// collecting the queue and starting to listen.
+    pub fn arrived(&self, paths: Vec<String>) -> Option<Vec<String>> {
+        let mut opened = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if opened.listening {
+            Some(paths)
+        } else {
+            opened.pending.extend(paths);
+            None
+        }
+    }
+}
+
+/// Files that arrived before the page was listening. Called once, after it
+/// has subscribed to `pdf://open-paths`.
+#[tauri::command]
+pub fn opened_files_take(state: tauri::State<'_, OpenedFiles>) -> Vec<String> {
+    let mut opened = state.0.lock().unwrap_or_else(|e| e.into_inner());
+    opened.listening = true;
+    std::mem::take(&mut opened.pending)
 }
 
 // -------------------------------------------------------------------- recents

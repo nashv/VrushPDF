@@ -176,6 +176,7 @@ function stubSource(seeds: Record<string, string>, cliPath: string): string {
       window.__ipcCalls.push(cmd);
       switch (cmd) {
         case "resolve_cli_file": return path;
+        case "opened_files_take": return [];
         case "read_file": {
           const stored = files.get(args.path);
           if (!stored) throw new Error("no such file: " + args.path);

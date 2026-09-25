@@ -68,11 +68,13 @@ pub fn run() {
                 }
             }
         })
+        .manage(commands::OpenedFiles::default())
         .invoke_handler(tauri::generate_handler![
             commands::read_file,
             commands::write_file,
             commands::file_meta,
             commands::resolve_cli_file,
+            commands::opened_files_take,
             commands::recents_get,
             commands::recents_add,
             commands::recents_clear,
@@ -103,10 +105,14 @@ pub fn run() {
                         .filter_map(|u| u.to_file_path().ok())
                         .map(|p| p.to_string_lossy().into_owned())
                         .collect();
-                    if !paths.is_empty() {
-                        if let Some(window) = app.get_webview_window("main") {
-                            // Double-clicking a file should bring the app forward.
-                            let _ = window.set_focus();
+                    // On a cold launch these arrive before the window exists,
+                    // let alone the page's listener, so they queue until the
+                    // page collects them.
+                    let ready = app.state::<commands::OpenedFiles>().arrived(paths);
+                    if let Some(window) = app.get_webview_window("main") {
+                        // Double-clicking a file should bring the app forward.
+                        let _ = window.set_focus();
+                        if let Some(paths) = ready.filter(|p| !p.is_empty()) {
                             let _ = window.emit("pdf://open-paths", paths);
                         }
                     }

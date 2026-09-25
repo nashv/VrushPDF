@@ -115,6 +115,11 @@ export async function onExternalOpen(handler: (paths: string[]) => void): Promis
     const paths = event.payload.filter(isPdf);
     if (paths.length) handler(paths);
   });
+  // A cold launch from Finder delivers its files before the listener above
+  // exists, so Rust holds them until now. Asking only after listening means
+  // none are lost in between, and Rust hands each one over only once.
+  const early = (await invoke<string[]>("opened_files_take")).filter(isPdf);
+  if (early.length) handler(early);
 
   const unlistenDrop = await getCurrentWebview().onDragDropEvent((event) => {
     if (event.payload.type !== "drop") return;
