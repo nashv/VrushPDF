@@ -5,6 +5,7 @@
 
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import Inspector from "$lib/components/Inspector.svelte";
+  import LicenseDialog from "$lib/components/LicenseDialog.svelte";
   import MergeDialog from "$lib/components/MergeDialog.svelte";
   import PasswordDialog from "$lib/components/PasswordDialog.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
@@ -17,8 +18,10 @@
   import Viewer from "$lib/components/Viewer.svelte";
   import Welcome from "$lib/components/Welcome.svelte";
   import { installAppMenu } from "$lib/menu/appMenu.svelte";
+  import { hasGlass } from "$lib/platform";
   import { handleShortcut } from "$lib/shortcuts";
   import { images } from "$lib/state/images.svelte";
+  import { license } from "$lib/state/license.svelte";
   import { recents } from "$lib/state/recents.svelte";
   import { session } from "$lib/state/session.svelte";
   import { settings } from "$lib/state/settings.svelte";
@@ -37,6 +40,7 @@
     void images.loadStandard();
     void recents.refresh();
     void settings.load();
+    void license.load();
 
     // The native menu bar: macOS gets it app-wide, Windows and Linux in-window.
     const menu = installAppMenu({ onDrawSignature: () => (signaturePadOpen = true) });
@@ -65,12 +69,28 @@
       void session.requestQuit();
     });
 
+    // Under glass the toolbar leaves room for the traffic lights, which leave
+    // the window in full screen. Entering and leaving it both resize.
+    const fullscreenWatch = hasGlass ? watchFullscreen() : Promise.resolve(() => {});
+
     return () => {
+      void fullscreenWatch.then((off) => off()).catch(() => {});
       void unlisten.then((off) => off()).catch(() => {});
       void closeGuard.then((off) => off()).catch(() => {});
       void menu.then((dispose) => dispose()).catch(() => {});
     };
   });
+
+  function watchFullscreen() {
+    const win = getCurrentWindow();
+    const sync = () =>
+      win
+        .isFullscreen()
+        .then((on) => document.documentElement.toggleAttribute("data-fullscreen", on))
+        .catch(() => {});
+    void sync();
+    return win.onResized(sync);
+  }
 
   const title = $derived(
     tab && hasDocument ? `${tab.dirty ? "• " : ""}${tab.title} — VrushPDF` : "VrushPDF",
@@ -147,6 +167,10 @@
   <SettingsDialog />
 {/if}
 
+{#if license.dialogOpen}
+  <LicenseDialog />
+{/if}
+
 <ConfirmDialog />
 <Toasts />
 
@@ -165,6 +189,12 @@
     min-height: 0;
   }
 
+  /* Liquid Glass (macOS): the panes float, inset from the window edge. The
+     resizers are the gutters between them. */
+  :global([data-glass]) .body {
+    padding: 0 var(--pane-gap) var(--pane-gap);
+  }
+
   .busy {
     position: fixed;
     top: 50%;
@@ -173,8 +203,9 @@
     padding: 9px 18px;
     transform: translate(-50%, -50%);
     border-radius: 99px;
-    background: var(--bg-raised);
-    border: 1px solid var(--border);
+    background: var(--surface-float);
+    backdrop-filter: var(--surface-float-filter);
+    border: 1px solid var(--surface-float-border);
     box-shadow: var(--shadow-3);
   }
 </style>

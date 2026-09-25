@@ -14,6 +14,7 @@
  */
 import { degrees, PDFDocument, type PDFPage } from "pdf-lib";
 
+import { applyFieldValues, registerFields, type FieldValues } from "./fields";
 import { attachAnnots, prepareWrite, stripImported, type ImageSource } from "./write";
 import type { Annot, PageEntry } from "./types";
 
@@ -29,6 +30,8 @@ export interface SaveRequest {
   mainDocId: string;
   getSource: (sourceDocId: string) => SourceBytes | null;
   resolveImage: (id: string) => ImageSource | null;
+  /** Filled-in form values for the main document's fields, by field name. */
+  fields?: FieldValues;
   /** Skip the fast path even when the plan looks unchanged. */
   forceRebuild?: boolean;
 }
@@ -39,6 +42,9 @@ export interface SaveResult {
   annotationsWritten: number;
   /** Annotations dropped because their stamp image was unavailable. */
   annotationsSkipped: number;
+  fieldsWritten: number;
+  /** Fields that could not take their value, by name. */
+  fieldsFailed: string[];
 }
 
 /** True when the plan is still a 1:1, unrotated view of the main document. */
@@ -93,13 +99,20 @@ export async function buildSavedPdf(request: SaveRequest): Promise<SaveResult> {
     written += attachAnnots(ctx, page, pageAnnots);
   }
 
-  const bytes = await prepared.doc.save({ useObjectStreams: false });
+  const fields = await applyFieldValues(prepared.doc, request.fields ?? {});
+
+  // Appearances were regenerated field by field above, where one that cannot
+  // be drawn in Helvetica is left to the viewer. pdf-lib's own pass would
+  // throw on that field and fail the whole save.
+  const bytes = await prepared.doc.save({ useObjectStreams: false, updateFieldAppearances: false });
 
   return {
     bytes,
     strategy: prepared.strategy,
     annotationsWritten: written,
     annotationsSkipped: requested - written,
+    fieldsWritten: fields.written,
+    fieldsFailed: fields.failed,
   };
 }
 
@@ -200,6 +213,12 @@ async function rebuild(
     }
     pagePairs.push({ entry, page });
   }
+
+  registerFields(
+    out,
+    mainDoc,
+    pagePairs.filter((p) => p.entry.sourceDocId === mainDocId).map((p) => p.page),
+  );
 
   return { doc: out, pagePairs, strategy: "rebuilt" };
 }

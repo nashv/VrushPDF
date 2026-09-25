@@ -1,5 +1,6 @@
 <script lang="ts">
   /** The open-documents strip, above the toolbar. */
+  import { hasGlass } from "$lib/platform";
   import { createReorder } from "$lib/reorder.svelte";
   import { session } from "$lib/state/session.svelte";
   import { workspace, type DocumentTab } from "$lib/state/workspace.svelte";
@@ -36,7 +37,13 @@
   }
 </script>
 
-<div class="tabbar" bind:this={strip} role="tablist" aria-label="Open documents">
+<div
+  class="tabbar"
+  bind:this={strip}
+  role="tablist"
+  aria-label="Open documents"
+  data-tauri-drag-region={hasGlass ? "" : undefined}
+>
   <div class="strip">
     {#each tabs as tab, index (tab.id)}
       {@const active = tab.id === workspace.activeId}
@@ -217,5 +224,49 @@
   .add:hover {
     background: var(--bg-hover);
     color: var(--text);
+  }
+
+  /*
+   * Liquid Glass (macOS): a recessed capsule track on the window's glass, with
+   * the active tab as a raised pill inside it, the way a segmented control is
+   * drawn. The strip still grows its tabs to fill.
+   */
+  :global([data-glass]) .tabbar {
+    gap: 6px;
+    height: 36px;
+    padding: 0 10px 6px;
+    background: none;
+    border-bottom: none;
+  }
+
+  :global([data-glass]) .strip {
+    gap: 2px;
+    padding: 2px;
+    border-radius: 999px;
+    background: var(--glass-track);
+  }
+
+  :global([data-glass]) .tab,
+  :global([data-glass]) .tab:last-child {
+    border: none;
+    border-radius: 999px;
+  }
+
+  :global([data-glass]) .tab.active {
+    background: var(--glass-fill);
+    box-shadow: var(--glass-edge), var(--glass-lift);
+  }
+
+  :global([data-glass]) .tab.active + .tab {
+    margin-left: 0;
+  }
+
+  :global([data-glass]) .close,
+  :global([data-glass]) .add {
+    border-radius: 999px;
+  }
+
+  :global([data-glass]) .add {
+    width: 30px;
   }
 </style>

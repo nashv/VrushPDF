@@ -40,6 +40,11 @@
   --sidebar-w: 288px;
   --inspector-w: 272px;
 
+  /* Popovers, dialogs and toasts. Opaque here; translucent under glass. */
+  --surface-float: var(--bg-raised);
+  --surface-float-border: var(--border);
+  --surface-float-filter: none;
+
   color-scheme: light dark;
 }
 
@@ -113,6 +118,72 @@
   }
 }
 
+/*
+ * Liquid Glass, in the macOS window only (`data-glass`, set in app.html). The
+ * page is transparent over the system material, so chrome is drawn as tinted
+ * slabs of it: controls gather into capsules, the side panels float as inset
+ * cards, and only the document area stays opaque, as content does under glass.
+ *
+ * `:root[data-glass]` outranks the plain `:root` in the dark-mode block, so
+ * these hold in both schemes; the dark values have their own block below.
+ */
+:root[data-glass] {
+  --toolbar-h: 52px;
+  --radius: 8px;
+  --radius-lg: 16px;
+  /* Gutter between the floating panes and the window edge. The pane radius is
+     the window's corner radius less that gutter, so the corners run concentric. */
+  --pane-gap: 8px;
+  --pane-radius: 18px;
+
+  /* How much each surface tints the glass behind it. */
+  --pane-fill: rgb(255 255 255 / 38%);
+  --glass-fill: rgb(255 255 255 / 60%);
+  --glass-track: rgb(0 0 0 / 5%);
+  /* The lit top rim and hairline outline that make a slab read as glass. */
+  --glass-rim: rgb(255 255 255 / 80%);
+  --glass-stroke: rgb(0 0 0 / 8%);
+  --glass-edge: inset 0 1px 0 var(--glass-rim), inset 0 0 0 0.5px var(--glass-stroke);
+  --glass-lift: 0 1px 2px rgb(0 0 0 / 5%), 0 6px 18px rgb(0 0 0 / 7%);
+
+  /* Translucent, so hover and press states tint whatever surface they sit on. */
+  --bg-hover: rgb(0 0 0 / 6%);
+  --bg-active: rgb(0 0 0 / 11%);
+
+  --surface-float: rgb(250 250 252 / 74%);
+  --surface-float-border: rgb(255 255 255 / 60%);
+  /* Floating surfaces sit over page content, not the native material, so they
+     have to frost what is beneath them themselves. */
+  --surface-float-filter: blur(30px) saturate(180%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-glass] {
+    --pane-fill: rgb(30 30 34 / 34%);
+    --glass-fill: rgb(255 255 255 / 11%);
+    --glass-track: rgb(0 0 0 / 22%);
+    --glass-rim: rgb(255 255 255 / 16%);
+    --glass-stroke: rgb(0 0 0 / 40%);
+    --glass-lift: 0 1px 2px rgb(0 0 0 / 25%), 0 6px 18px rgb(0 0 0 / 30%);
+
+    --bg-hover: rgb(255 255 255 / 8%);
+    --bg-active: rgb(255 255 255 / 14%);
+
+    --surface-float: rgb(36 37 42 / 72%);
+    --surface-float-border: rgb(255 255 255 / 12%);
+  }
+}
+
+/* The system renders its own glass near-opaque for this setting; match it. */
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-glass] {
+    --pane-fill: var(--bg-raised);
+    --glass-fill: var(--bg-raised);
+    --surface-float: var(--bg-raised);
+    --surface-float-filter: none;
+  }
+}
+
 * {
   box-sizing: border-box;
 }
@@ -134,6 +205,11 @@ body {
   overscroll-behavior: none;
   user-select: none;
   cursor: default;
+}
+
+/* Let the window's glass through; the panes paint their own surfaces. */
+:root[data-glass] body {
+  background: transparent;
 }
 
 :focus-visible {
@@ -220,6 +296,31 @@ select {
 
 .btn.danger:hover:not(:disabled) {
   background: var(--danger-soft);
+}
+
+/* Glass controls are capsules, and bordered ones become raised glass. */
+:root[data-glass] .btn {
+  border-radius: 999px;
+}
+
+:root[data-glass] .btn.outlined {
+  border-color: transparent;
+  background: var(--glass-fill);
+  box-shadow: var(--glass-edge);
+}
+
+/* That rule outranks the plain hover above, so it restates it over the fill. */
+:root[data-glass] .btn.outlined:hover:not(:disabled) {
+  background: linear-gradient(var(--bg-hover), var(--bg-hover)), var(--glass-fill);
+}
+
+/*
+ * A raised slab of glass: a control cluster, a selected segment, a card.
+ * Inert off macOS, so markup can carry it unconditionally.
+ */
+:root[data-glass] .glass {
+  background: var(--glass-fill);
+  box-shadow: var(--glass-edge), var(--glass-lift);
 }
 
 .divider {

@@ -1,0 +1,3 @@
+# License key ids the app refuses, one per line, compiled in at build time.
+# A key's id comes from `npm run keygen -- show <key>`. Add refunded or leaked
+# keys here; they stop working in the next release. `#` starts a comment.

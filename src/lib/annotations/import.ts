@@ -152,6 +152,15 @@ function fontSizeOf(dict: PDFDict, fallback: number): number {
   return Number.isFinite(size) && size > 0 ? size : fallback;
 }
 
+/** The fill (`rg`, `g`) or stroke (`RG`, `G`) colour a `/DA` string sets. */
+function daColor(da: string, stroke: boolean): string | null {
+  const [rgbOp, grayOp] = stroke ? ["RG", "G"] : ["rg", "g"];
+  const rgb = new RegExp(`([\\d.]+)\\s+([\\d.]+)\\s+([\\d.]+)\\s+${rgbOp}\\b`).exec(da);
+  if (rgb) return toHex(rgb.slice(1, 4).map(Number));
+  const gray = new RegExp(`(?:^|\\s)([\\d.]+)\\s+${grayOp}\\b`).exec(da);
+  return gray ? toHex([Number(gray[1])]) : null;
+}
+
 // ------------------------------------------------------------------ per-kind
 
 function quadsOf(dict: PDFDict): Quad[] {
@@ -268,16 +277,23 @@ function toAnnot(dict: PDFDict, subtype: string, pageId: string, objectNumber: n
       const rect = rectOf(dict);
       if (!rect) return null;
       const q = lookupNumber(dict, "Q") ?? 0;
+      const da = lookupText(dict, "DA") ?? "";
+      const color = daColor(da, false) ?? base.color;
+      const background = colorOf(dict, "C", null);
+      const borderColor = daColor(da, true);
       return {
         ...base,
         kind: "freetext",
+        color,
         rect,
         text: base.contents,
         fontSize: fontSizeOf(dict, 12),
         align: q === 1 ? "center" : q === 2 ? "right" : "left",
-        bgColor: colorOf(dict, "C", null),
-        borderColor: null,
-        borderWidth: borderWidth(dict, 0),
+        // Earlier builds of this app wrote the text colour into `/C`. Text on a
+        // background of its own colour cannot be read, so that means none.
+        bgColor: background && background !== color ? background : null,
+        borderColor,
+        borderWidth: borderColor ? borderWidth(dict, 1) : 0,
       };
     }
 

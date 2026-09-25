@@ -214,6 +214,13 @@
     background: var(--bg-sunken);
   }
 
+  /* Liquid Glass (macOS): the one opaque card in the window. Content does not
+     go under glass here; the glass floats around it. */
+  :global([data-glass]) .viewer {
+    border-radius: var(--pane-radius);
+    box-shadow: inset 0 0 0 0.5px var(--glass-stroke);
+  }
+
   .column {
     display: flex;
     flex-direction: column;

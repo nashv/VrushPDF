@@ -23,6 +23,15 @@ comments; image stamps; built-in APPROVED / REVIEWED / DRAFT / CONFIDENTIAL /
 FINAL stamps; and reusable drawn signatures. Each has colour, opacity,
 stroke width and comment controls, with snapshot undo/redo across everything.
 
+**Forms** — fill in text fields, checkboxes, radio buttons, dropdowns and list
+boxes with the Select tool. What you type goes into the PDF's real form fields
+on save, with regenerated appearances, so Preview, Acrobat and Chrome show it
+too. Filling is undoable like any edit: each field typed into, from click to
+leaving it, is one step, and Escape abandons it. Only the opened file's own
+fields are fillable; a merged-in document's fields stay as drawn. Signature
+fields, push buttons and JavaScript-driven behaviour (calculations, formatting)
+are not supported.
+
 **Pages** — insert blank pages, insert or append another PDF, rotate, delete,
 keep a selected range, and reorder either by dragging a thumbnail or with the
 move buttons. Everything acts on the pages ticked in the thumbnail strip, or on
@@ -63,7 +72,8 @@ letters are handled in the app and ignored while a text field has focus.
 npm run check              # svelte-check
 npm run verify:roundtrip   # annotation persistence (no browser needed)
 npm run verify:ui          # the real frontend, driven in headless Chromium
-cargo check --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml   # license key + trial checks
+cargo test --manifest-path keygen/Cargo.toml      # the keygen
 npm run tauri build      # the real release bundle
 ```
 
@@ -81,7 +91,7 @@ that the style controls stay on screen at 1100px. It needs a Chromium-based
 browser and the fixtures:
 
 ```sh
-npm run fixture:pdf        # writes report.pdf + appendix.pdf to /tmp/vrushpdf-test
+npm run fixture:pdf        # writes report.pdf, appendix.pdf and form.pdf to /tmp/vrushpdf-test
 ```
 
 ### Platform fit
@@ -111,6 +121,28 @@ rather than in `localStorage`, because Rust reads it while the app is still
 being assembled and no webview exists yet to ask. On macOS the control is shown
 but disabled: the system never launches a second copy of a bundled app, and
 delivers the file as an Apple Event instead.
+
+### Licensing
+
+VrushPDF is paid: a one-time purchase through Paddle, with a personal license key. There is no license server.
+- **Trial:** a new install gets 14 days of everything. After that, PDFs still open and read, but saving, annotating and page edits need a key. The toolbar shows the days left; **VrushPDF ▸ Enter License…** (Help menu on Windows and Linux) takes a key or opens the checkout.
+- **Keys:** a key is `VRSH.<payload>.<signature>`. The payload names the buyer's email, and the signature is Ed25519 (`src-tauri/src/license_key.rs`). The app checks it offline against `src-tauri/src/license_key.pub` and never uses the network. Keys aren't tied to a machine; the email shown in the app is what discourages sharing.
+- **Revoking:** add a key's id to `src-tauri/src/revoked_keys.txt`. It stops working from the next release.
+- **Enforcement:** the check that actually stops an expired copy is in Rust, on `write_file` and `signature_save`. The frontend (`src/lib/state/license.svelte.ts`) only disables tools and explains.
+
+This keeps honest people honest. It does not survive someone patching the binary, and no offline scheme can.
+
+**Issuing keys** with the keygen (`keygen/`, run on your own machine):
+
+```sh
+npm run keygen -- init                       # once: signing key + license_key.pub
+npm run -s keygen -- issue buyer@example.com # prints the key; email it to them
+npm run -s keygen -- show <key>              # who a key is for, and its id
+```
+
+`init` writes the private key to `~/.vrushpdf-signing-key`; set `VRUSHPDF_SIGNING_KEY` to use a different path. It never goes in the repo. Back it up: without it you can't issue keys that already-released builds accept. Running `init --force` makes a new pair, and every key issued before that stops working. `issue` refuses to run if the signing key doesn't match the committed `license_key.pub`.
+
+When Paddle reports a sale, run `issue` with the buyer's email and send them the key. To license your own debug build, issue one to yourself.
 
 ## Distribution
 
@@ -253,7 +285,9 @@ src/lib/menu/          the native menu bar and its state sync
 src/lib/reorder.svelte.ts  pointer-based drag-to-reorder
 src/lib/stamps.ts      the built-in stamps, drawn to PNG at startup
 src/lib/components/    toolbar, sidebar, viewer, page, overlay, inspector
-src-tauri/src/         filesystem, recents and signature-store commands
+src-tauri/src/         filesystem, recents and signature-store commands,
+                       licensing (license.rs), macOS glass backdrop (glass.rs)
+keygen/                issues license keys locally (shares license_key.rs)
 scripts/               asset copy + the two verification suites
 ```
 

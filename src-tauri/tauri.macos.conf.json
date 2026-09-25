@@ -1,0 +1,18 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "title": "VrushPDF",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 640,
+        "minHeight": 480,
+        "dragDropEnabled": true,
+        "transparent": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
+      }
+    ]
+  }
+}

@@ -4,7 +4,7 @@
    * pointer handling for the active tool.
    *
    * Layer order (bottom to top): canvas, highlight SVG, text layer, annotation
-   * SVG, HTML widgets, interaction surface. The surface takes pointer events for
+   * SVG, HTML widgets, interaction surface, form fields. The surface takes pointer events for
    * every tool except the text-selection ones, where it steps aside so the text
    * layer underneath can drive a native selection.
    */
@@ -59,6 +59,7 @@
 
   import AnnotLayer from "./AnnotLayer.svelte";
   import AnnotWidgets from "./AnnotWidgets.svelte";
+  import FormLayer from "./FormLayer.svelte";
 
   let {
     tab,
@@ -149,6 +150,9 @@
     const target = canvasEl;
     const current = page;
     const vp = viewport;
+    // Filled-in form values are drawn by pdf.js from its storage, so a change
+    // to them has to repaint the page.
+    void doc.formRevision;
     if (!visible || !target || !current || !vp) return;
 
     renderer.render(current, target, vp).catch((err) => {
@@ -596,6 +600,10 @@
       onpointercancel={onSurfaceCancel}
       ondblclick={onSurfaceDoubleClick}
     ></div>
+
+    {#if viewport && visible}
+      <FormLayer {tab} {entry} {viewport} interactive={tool === "select"} />
+    {/if}
   </div>
 </div>
 

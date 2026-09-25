@@ -20,3 +20,9 @@ function detect(): Platform {
 
 export const platform: Platform = detect();
 export const isMac = platform === "mac";
+
+/**
+ * True in the macOS window, where the page sits over native Liquid Glass and
+ * the chrome is translucent. Also decided in `app.html`.
+ */
+export const hasGlass = globalThis.document?.documentElement.dataset.glass !== undefined;

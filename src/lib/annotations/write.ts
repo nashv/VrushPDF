@@ -183,9 +183,15 @@ function geometryEntries(annot: Annot): Record<string, unknown> {
 
   if (isFreeText(annot)) {
     const [r, g, b] = hexToRgb(annot.color);
+    const stroke = annot.borderColor ? ` ${hexToRgb(annot.borderColor).join(" ")} RG` : "";
     return {
-      // `/DA` is what viewers use if they regenerate the appearance themselves.
-      DA: PDFString.of(`/Helv ${annot.fontSize} Tf ${r} ${g} ${b} rg`),
+      // A FreeText's `/C` is its background, and an empty one means none; it
+      // must not be the text colour, which the importer would read back as a
+      // solid fill. Text and border colours go in `/DA` instead, which is also
+      // what viewers use if they regenerate the appearance themselves.
+      C: annot.bgColor ? hexToRgb(annot.bgColor) : [],
+      DA: PDFString.of(`/Helv ${annot.fontSize} Tf ${r} ${g} ${b} rg${stroke}`),
+      BS: { W: annot.borderColor ? annot.borderWidth : 0 },
       Q: annot.align === "center" ? 1 : annot.align === "right" ? 2 : 0,
     };
   }

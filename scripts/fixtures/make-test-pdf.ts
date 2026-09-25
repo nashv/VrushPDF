@@ -60,3 +60,18 @@ for (const [name, title, heading, pages] of [
   writeFileSync(`${OUT_DIR}/${name}`, await build(title, heading, pages));
   console.log(`wrote ${OUT_DIR}/${name}`);
 }
+
+// A one-page form, for filling in: a text field and a checkbox.
+{
+  const doc = await PDFDocument.create();
+  doc.setTitle("Application");
+  const font = doc.embedStandardFont(StandardFonts.Helvetica);
+  const page = doc.addPage([612, 792]);
+  page.drawText("Name", { x: 64, y: 706, size: 12, font });
+  page.drawText("I agree", { x: 90, y: 650, size: 12, font });
+  const form = doc.getForm();
+  form.createTextField("applicant").addToPage(page, { x: 64, y: 670, width: 300, height: 24 });
+  form.createCheckBox("agree").addToPage(page, { x: 64, y: 646, width: 18, height: 18 });
+  writeFileSync(`${OUT_DIR}/form.pdf`, await doc.save());
+  console.log(`wrote ${OUT_DIR}/form.pdf`);
+}

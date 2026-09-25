@@ -14,6 +14,8 @@ use std::time::UNIX_EPOCH;
 use serde::{Deserialize, Serialize};
 use tauri::{ipc, AppHandle, Manager, Runtime};
 
+use crate::license;
+
 const RECENTS_FILE: &str = "recents.json";
 const SIGNATURES_DIR: &str = "signatures";
 const MAX_RECENTS: usize = 15;
@@ -106,6 +108,7 @@ pub fn read_file(path: String) -> Result<ipc::Response, String> {
 /// an interrupted save cannot leave the user with a truncated PDF.
 #[tauri::command]
 pub fn write_file(request: ipc::Request<'_>) -> Result<FileMeta, String> {
+    require_license()?;
     let path = PathBuf::from(header(&request, "x-file-path")?);
     let bytes = raw_body(&request)?;
 
@@ -255,6 +258,7 @@ pub fn signature_save<R: Runtime>(
     app: AppHandle<R>,
     request: ipc::Request<'_>,
 ) -> Result<SignatureMeta, String> {
+    require_license()?;
     let id = header(&request, "x-signature-id")?;
     let name = header(&request, "x-signature-name")?;
     let bytes = raw_body(&request)?;
@@ -271,4 +275,42 @@ pub fn signature_delete<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(),
     fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let _ = fs::remove_file(path.with_extension("name"));
     Ok(())
+}
+
+// -------------------------------------------------------------------- license
+
+/*
+ * Every save, and saving a signature, goes through a command above, so this is
+ * where an ended trial actually stops writes. The frontend hides the tools and
+ * explains first; this holds even if it did not.
+ */
+fn require_license() -> Result<(), String> {
+    if license::can_edit() {
+        Ok(())
+    } else {
+        Err("Your VrushPDF trial has ended. Enter a license key to save changes.".into())
+    }
+}
+
+/*
+ * On the blocking pool: every one of these reads or writes `license.json`, so
+ * none belongs on the main thread where synchronous commands run.
+ */
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn license_status() -> Result<license::Status, String> {
+    blocking(license::status).await
+}
+
+#[tauri::command]
+pub async fn license_activate(key: String) -> Result<license::Status, String> {
+    blocking(move || license::activate(&key)).await?
+}
+
+#[tauri::command]
+pub async fn license_remove() -> Result<license::Status, String> {
+    blocking(license::remove).await
 }

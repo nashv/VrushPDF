@@ -1,4 +1,8 @@
 mod commands;
+#[cfg(target_os = "macos")]
+mod glass;
+mod license;
+mod license_key;
 mod settings;
 
 use tauri::{Emitter, Manager};
@@ -41,6 +45,29 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .setup(|_app| {
+            #[cfg(target_os = "macos")]
+            if let Some(window) = _app.get_webview_window("main") {
+                glass::install(&window);
+            }
+            Ok(())
+        })
+        .on_window_event(|_window, _event| {
+            // AppKit puts the traffic lights back wherever it likes after any
+            // of these; put them back on the toolbar row.
+            #[cfg(target_os = "macos")]
+            if matches!(
+                _event,
+                tauri::WindowEvent::Resized(_)
+                    | tauri::WindowEvent::Focused(_)
+                    | tauri::WindowEvent::ScaleFactorChanged { .. }
+                    | tauri::WindowEvent::ThemeChanged(_)
+            ) {
+                if let Ok(ns_window) = _window.ns_window() {
+                    glass::place_traffic_lights(ns_window);
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::read_file,
             commands::write_file,
@@ -55,6 +82,9 @@ pub fn run() {
             commands::signature_delete,
             commands::settings_get,
             commands::settings_set,
+            commands::license_status,
+            commands::license_activate,
+            commands::license_remove,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

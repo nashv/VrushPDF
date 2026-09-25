@@ -10,6 +10,7 @@
  * less than maintaining hand-written inverse operations for twelve annotation
  * kinds plus arbitrary page permutations.
  */
+import type { FieldValue, FieldValues } from "$lib/annotations/fields";
 import {
   annotBounds,
   type Annot,
@@ -18,6 +19,7 @@ import {
   type Rotation,
 } from "$lib/annotations/types";
 import { type DocStore, type SourceDoc } from "./doc.svelte";
+import { license } from "./license.svelte";
 
 export type { PageEntry };
 
@@ -26,6 +28,7 @@ const MAX_HISTORY = 100;
 interface Snapshot {
   pages: PageEntry[];
   annots: Annot[];
+  fields: FieldValues;
 }
 
 interface HistoryEntry {
@@ -57,6 +60,11 @@ export class EditStore {
 
   pages = $state<PageEntry[]>([]);
   annots = $state<Annot[]>([]);
+  /**
+   * Form values the user has filled in, by field name; fields not listed show
+   * what the file says. Part of the undoable unit, like the annotations.
+   */
+  fields = $state<FieldValues>({});
   selectedId = $state<string | null>(null);
   dirty = $state(false);
 
@@ -139,12 +147,15 @@ export class EditStore {
     return {
       pages: $state.snapshot(this.pages) as PageEntry[],
       annots: $state.snapshot(this.annots) as Annot[],
+      fields: $state.snapshot(this.fields) as FieldValues,
     };
   }
 
   #restore(state: Snapshot) {
     this.pages = state.pages;
     this.annots = state.annots;
+    this.fields = state.fields;
+    this.#docs.syncFields(state.fields);
     if (this.selectedId && !this.annots.some((a) => a.id === this.selectedId)) {
       this.selectedId = null;
     }
@@ -157,8 +168,13 @@ export class EditStore {
     this.dirty = true;
   }
 
-  /** Apply an atomic, undoable change. */
+  /**
+   * Apply an atomic, undoable change. Every edit comes through here or through
+   * `begin`, which is why the license gate sits in these two and nowhere else
+   * in this store.
+   */
   commit(label: string, mutate: () => void) {
+    if (!license.allow()) return;
     const before = this.#snapshot();
     mutate();
     this.#record(label, before);
@@ -169,7 +185,7 @@ export class EditStore {
    * between `begin` and `end` collapse into a single undo entry.
    */
   begin(label: string) {
-    if (this.#pending) return;
+    if (this.#pending || !license.allow()) return;
     this.#pending = { label, state: this.#snapshot() };
   }
 
@@ -204,6 +220,27 @@ export class EditStore {
     this.#undo.push({ label: entry.label, state: this.#snapshot() });
     this.#restore(entry.state);
     this.dirty = true;
+  }
+
+  // --------------------------------------------------------------- form fields
+
+  /**
+   * Fill in a form field. Inside a gesture (typing into a field, from focus to
+   * blur) the surrounding `begin`/`end` makes the whole edit one undo step;
+   * outside one (a checkbox click) it is its own.
+   */
+  setField(name: string, value: FieldValue, label = "Fill in form") {
+    const apply = () => {
+      this.fields = { ...this.fields, [name]: value };
+      this.#docs.syncFields(this.fields);
+    };
+    if (this.#pending) apply();
+    else this.commit(label, apply);
+  }
+
+  /** True while a gesture is open, so the form layer knows whether to begin one. */
+  get inGesture(): boolean {
+    return this.#pending !== null;
   }
 
   // --------------------------------------------------------------- annotations
@@ -365,6 +402,8 @@ export class EditStore {
   reset(pages: PageEntry[], annots: Annot[]) {
     this.pages = pages;
     this.annots = annots;
+    this.fields = {};
+    this.#docs.syncFields({});
     this.selectedId = null;
     this.pickedPageIds = new Set();
     this.#undo = [];

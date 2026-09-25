@@ -31,6 +31,7 @@ import {
 } from "@tauri-apps/api/menu";
 
 import { isMac } from "$lib/platform";
+import { license } from "$lib/state/license.svelte";
 import { recents } from "$lib/state/recents.svelte";
 import { session } from "$lib/state/session.svelte";
 import { viewer, type SidebarTab, type Tool } from "$lib/state/viewer.svelte";
@@ -679,13 +680,19 @@ export async function installAppMenu(hooks: {
       action: () => session.openSettings(),
     });
 
+    const licenseItem = item({
+      id: "app.license",
+      label: "Enter License…",
+      action: () => license.openDialog(),
+    });
+
     const about: Spec = {
       kind: "native",
       item: {
         About: {
           name: "VrushPDF",
           version,
-          copyright: "MIT licensed",
+          copyright: "Copyright © 2026 nashv",
         },
       },
       label: "About VrushPDF",
@@ -698,6 +705,7 @@ export async function installAppMenu(hooks: {
             label: "VrushPDF",
             items: [
               about,
+              licenseItem,
               sep,
               settingsItem,
               sep,
@@ -715,7 +723,7 @@ export async function installAppMenu(hooks: {
 
     const helpMenu: Spec[] = isMac
       ? [] // macOS puts About in the app menu, so a Help menu would hold nothing.
-      : [{ kind: "menu", label: "Help", items: [about] }];
+      : [{ kind: "menu", label: "Help", items: [licenseItem, sep, about] }];
 
     const recentsSubmenu = await Submenu.new({ text: "Open Recent", items: [] });
 

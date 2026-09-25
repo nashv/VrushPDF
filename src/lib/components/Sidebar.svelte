@@ -147,4 +147,48 @@
     flex: 1;
     min-height: 0;
   }
+
+  /*
+   * Liquid Glass (macOS): an inset card that tints the window's glass rather
+   * than covering it. The page shell supplies the gutter around it.
+   */
+  :global([data-glass]) .sidebar {
+    border-right: none;
+    border-radius: var(--pane-radius);
+    background: var(--pane-fill);
+    box-shadow: var(--glass-edge), var(--glass-lift);
+    overflow: hidden;
+  }
+
+  /* Overlaid, it sits on the document instead of the native glass, so it has
+     to frost the pages beneath it itself. */
+  @media (max-width: 899px) {
+    :global([data-glass]) .sidebar {
+      bottom: var(--pane-gap);
+      left: var(--pane-gap);
+      background: var(--surface-float);
+      backdrop-filter: var(--surface-float-filter);
+    }
+  }
+
+  /* The section tabs become a segmented control. */
+  :global([data-glass]) .tabs {
+    gap: 2px;
+    margin: 8px;
+    padding: 2px;
+    border-bottom: none;
+    border-radius: 12px;
+    background: var(--glass-track);
+  }
+
+  :global([data-glass]) .tab {
+    padding: 5px 2px 4px;
+    border-bottom: none;
+    border-radius: 10px;
+  }
+
+  :global([data-glass]) .tab.active {
+    background: var(--glass-fill);
+    box-shadow: var(--glass-edge), var(--glass-lift);
+  }
 </style>

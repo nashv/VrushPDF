@@ -21,6 +21,7 @@ const CDP_PORT = 9223;
 const OUT_DIR = "/tmp/vrushpdf-test";
 const PDF_PATH = `${OUT_DIR}/report.pdf`;
 const PDF_PATH_2 = `${OUT_DIR}/appendix.pdf`;
+const FORM_PATH = `${OUT_DIR}/form.pdf`;
 const STAMP_PNG_PATH = `${OUT_DIR}/stamp.png`;
 
 const BROWSERS = [
@@ -153,6 +154,11 @@ function stubSource(seeds: Record<string, string>, cliPath: string): string {
   let menuRid = 1000;
   window.__menu = { created: [], ids: [], setAs: null, setEnabled: 0, setChecked: 0, setText: 0 };
 
+  window.__license = {
+    state: "trial", daysLeft: 14, email: null, keyId: null,
+    buyUrl: "https://example.com/buy",
+  };
+
   window.__TAURI_INTERNALS__ = {
     metadata: {
       currentWindow: { label: "main" },
@@ -179,6 +185,16 @@ function stubSource(seeds: Record<string, string>, cliPath: string): string {
         case "recents_get": return [];
         case "settings_get": return { singleInstance: true };
         case "settings_set": return null;
+        // A trial by default, so every earlier section runs with editing on
+        // and the trial capsule is on screen. The license section changes it.
+        case "license_status": return window.__license;
+        case "license_activate":
+          window.__activatedWith = args.key;
+          window.__license = {
+            state: "licensed", daysLeft: null, email: "buyer@example.com",
+            keyId: "80232a87", buyUrl: "https://example.com/buy",
+          };
+          return window.__license;
         case "recents_add": return [];
         case "signatures_list": return [];
         case "write_file": {
@@ -372,6 +388,7 @@ async function main() {
   const seeds = {
     [PDF_PATH]: readFileSync(PDF_PATH).toString("base64"),
     [PDF_PATH_2]: readFileSync(PDF_PATH_2).toString("base64"),
+    [FORM_PATH]: readFileSync(FORM_PATH).toString("base64"),
     [STAMP_PNG_PATH]: readFileSync(STAMP_PNG_PATH).toString("base64"),
   };
 
@@ -1726,6 +1743,236 @@ async function main() {
     check("the merged document is marked unsaved", () =>
       assert.ok(merged.dirty, "closing it would discard the merge without asking"),
     );
+
+    // --------------------------------------------------------------- forms
+    console.log("\nforms");
+
+    await cdp.eval(`window.__nextOpen = [${JSON.stringify(FORM_PATH)}]`);
+    await cdp.eval("document.querySelector('.tabbar .add').click()");
+    const formControls = await waitFor(
+      "the form's fields",
+      () => cdp.eval<number>("document.querySelectorAll('.forms .field-control').length"),
+      (n) => n >= 2,
+      25000,
+    ).catch(() => 0);
+    check("a form's fields become fillable controls", () => assert.equal(formControls, 2));
+    await sleep(600);
+    const freshForm = await cdp.eval<{ dirty: boolean; scrollTop: number; undo: boolean }>(`({
+      dirty: !!document.querySelector('.tabbar .tab.active .dot'),
+      scrollTop: document.querySelector('.viewer').scrollTop,
+      undo: !document.querySelector('.toolbar button[title^="Undo"]').disabled,
+    })`);
+    check("a freshly opened form is not marked unsaved", () => {
+      assert.ok(!freshForm.dirty, "the tab shows unsaved changes before any");
+      assert.ok(!freshForm.undo, "there is something to undo already");
+    });
+    check("a freshly opened form starts at the top", () => assert.equal(freshForm.scrollTop, 0));
+
+    // Filling needs the Select tool; an earlier section may have left another.
+    await cdp.eval(`document.querySelector('.tools button[title^="Select ("]').click()`);
+    await sleep(100);
+
+    // WebKit's contact AutoFill writes into fields no one is editing and fires
+    // `input`; that must not count as filling the form in.
+    await cdp.eval(`(() => {
+      const input = document.querySelector('.forms input[aria-label="applicant"]');
+      input.value = "Autofilled Name";
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await sleep(200);
+    const autofilled = await cdp.eval<{ value: string; dirty: boolean }>(`({
+      value: document.querySelector('.forms input[aria-label="applicant"]').value,
+      dirty: !!document.querySelector('.tabbar .tab.active .dot'),
+    })`);
+    check("AutoFill into a field nobody is editing is ignored", () => {
+      assert.equal(autofilled.value, "");
+      assert.ok(!autofilled.dirty, "the document was marked unsaved");
+    });
+
+    const formCanvas = `document.querySelector('.page[data-page-index="0"] canvas').toDataURL()`;
+    const blankPixels = await cdp.eval<string>(formCanvas);
+
+    await cdp.eval(`(() => {
+      const input = document.querySelector('.forms input[aria-label="applicant"]');
+      input.focus();
+      input.value = "Grace Hopper";
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.blur();
+    })()`);
+    await sleep(200);
+    const afterTyping = await cdp.eval<{ value: string; dirty: boolean }>(`({
+      value: document.querySelector('.forms input[aria-label="applicant"]').value,
+      dirty: !!document.querySelector('.tabbar .tab.active .dot'),
+    })`);
+    check("typing into a field fills it and marks the document unsaved", () => {
+      assert.equal(afterTyping.value, "Grace Hopper");
+      assert.ok(afterTyping.dirty);
+    });
+    // The value is drawn by pdf.js on the canvas, not by the input, which is
+    // see-through once it loses focus. So the page's pixels have to change.
+    const filledPixels = await waitFor(
+      "the page to repaint with the value",
+      () => cdp.eval<string>(formCanvas),
+      (pixels) => pixels !== blankPixels,
+      5000,
+    ).catch(() => blankPixels);
+    check("the page repaints to show the filled-in value", () =>
+      assert.notEqual(filledPixels, blankPixels, "canvas unchanged after filling"),
+    );
+
+    const checkbox = `document.querySelector('.forms [role="checkbox"]')`;
+    await cdp.eval(`${checkbox}.click()`);
+    await sleep(100);
+    const ticked = await cdp.eval<string>(`${checkbox}.getAttribute('aria-checked')`);
+    check("clicking a checkbox ticks it", () => assert.equal(ticked, "true"));
+
+    await cdp.eval(`document.querySelector('.toolbar button[title^="Undo"]').click()`);
+    await sleep(100);
+    const undone = await cdp.eval<{ box: string; text: string }>(`({
+      box: ${checkbox}.getAttribute('aria-checked'),
+      text: document.querySelector('.forms input[aria-label="applicant"]').value,
+    })`);
+    check("undo takes back the tick, and only the tick", () => {
+      assert.equal(undone.box, "false");
+      assert.equal(undone.text, "Grace Hopper");
+    });
+    await cdp.eval(`document.querySelector('.toolbar button[title^="Redo"]').click()`);
+    await sleep(100);
+
+    const savesBeforeForm = await cdp.eval<number>("window.__saveCount || 0");
+    await cdp.eval(`document.querySelector('.toolbar button[title^="Save (⌘S)"]').click()`);
+    await waitFor(
+      "the form to save",
+      () => cdp.eval<number>("window.__saveCount || 0"),
+      (n) => n > savesBeforeForm,
+      15000,
+    ).catch(() => 0);
+    const formPdf = await PDFDocument.load(
+      Buffer.from(await cdp.eval<string>("window.__saved"), "base64"),
+    );
+    const savedForm = formPdf.getForm();
+    check("saving writes the values into the real form fields", () => {
+      assert.equal(savedForm.getTextField("applicant").getText(), "Grace Hopper");
+      assert.equal(savedForm.getCheckBox("agree").isChecked(), true);
+    });
+
+    const reloadedForm = await waitFor(
+      "the saved form to reload",
+      () => cdp.eval<string>(
+        `document.querySelector('.forms input[aria-label="applicant"]')?.value ?? ''`,
+      ),
+      (v) => v === "Grace Hopper",
+      15000,
+    ).catch(() => "");
+    check("after saving, the field shows what the file now holds", () =>
+      assert.equal(reloadedForm, "Grace Hopper"),
+    );
+
+    // ------------------------------------------------------------- license
+    console.log("\nlicense");
+
+    const licenseIpc = await cdp.eval<string[]>("window.__ipcCalls");
+    check("the license state is read at startup", () =>
+      assert.ok(licenseIpc.includes("license_status"), "license_status was never called"),
+    );
+    check("Enter License… exists in the menu", () =>
+      assert.ok(menuIdsForMerge.includes("app.license"), "no app.license item was created"),
+    );
+    const capsule = await cdp.eval<string | null>(
+      "document.querySelector('.toolbar .trial')?.textContent?.trim() ?? null",
+    );
+    check("the toolbar shows the days left in the trial", () =>
+      assert.equal(capsule, "Trial: 14 days left"),
+    );
+
+    // The trial ends while the app is in the background; coming back to the
+    // front rereads the status.
+    await cdp.eval(`(() => {
+      window.__license = {
+        state: "expired", daysLeft: null, email: null, keyId: null,
+        buyUrl: "https://example.com/buy",
+      };
+      window.dispatchEvent(new Event("focus"));
+    })()`);
+    await sleep(300);
+
+    const locked = await cdp.eval<{ highlight: boolean; select: boolean; capsule: string | null }>(`({
+      highlight: document.querySelector('.tools button[title^="Highlight"]')?.disabled ?? false,
+      select: document.querySelector('.tools button[title^="Select ("]')?.disabled ?? true,
+      capsule: document.querySelector('.toolbar .trial')?.textContent?.trim() ?? null,
+    })`);
+    check("an ended trial disables the annotation tools", () => assert.ok(locked.highlight));
+    check("an ended trial leaves the read-only tools", () => assert.ok(!locked.select));
+    check("the toolbar says the trial ended", () => assert.equal(locked.capsule, "Trial ended · Buy"));
+
+    const savesBeforeLock = await cdp.eval<number>("window.__saveCount || 0");
+    await cdp.eval(`document.querySelector('.toolbar button[title^="Save (⌘S)"]').click()`);
+    await sleep(300);
+    const blocked = await cdp.eval<{ dialog: boolean; reason: string; saves: number }>(`({
+      dialog: !!document.getElementById('license-title'),
+      reason: document.querySelector('.dialog .reason')?.textContent ?? '',
+      saves: window.__saveCount || 0,
+    })`);
+    check("saving after the trial opens the license dialog instead", () => {
+      assert.ok(blocked.dialog, "no license dialog");
+      assert.match(blocked.reason, /Saving/);
+    });
+    check("nothing reaches write_file", () => assert.equal(blocked.saves, savesBeforeLock));
+
+    /** Pastes into the key field the way a person would, through input events. */
+    const typeKey = (text: string) =>
+      cdp.eval(`(() => {
+        const input = document.getElementById('license-key');
+        input.value = ${JSON.stringify(text)};
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+    const keyState = () =>
+      cdp.eval<{ hint: string; bad: boolean; activate: boolean }>(`(() => {
+        const hint = document.querySelector('.dialog .hint');
+        const activate = [...document.querySelectorAll('.dialog footer button')].find(
+          (b) => b.textContent.trim() === 'Activate',
+        );
+        return { hint: hint?.textContent ?? '', bad: !!hint?.classList.contains('bad'), activate: !!activate && !activate.disabled };
+      })()`);
+
+    // Shaped like a keygen key; the mock does not check the signature, and
+    // neither does the dialog.
+    const payload = Buffer.from(
+      JSON.stringify({ v: 1, id: "80232a87", email: "buyer@example.com", iat: 1790000000 }),
+    ).toString("base64url");
+    const licenseKey = `VRSH.${payload}.${"Q".repeat(86)}`;
+
+    await typeKey(licenseKey.slice(0, 60));
+    await sleep(100);
+    const partial = await keyState();
+    check("a key cut short is caught before activating", () => assert.ok(partial.bad && !partial.activate));
+
+    // Wrapped across lines, the way an email client might.
+    await typeKey(`  ${licenseKey.slice(0, 70)}\n${licenseKey.slice(70)}\n`);
+    await sleep(100);
+    const good = await keyState();
+    check("a whole key enables Activate and names its buyer", () => {
+      assert.ok(!good.bad && good.activate);
+      assert.equal(good.hint, "Key for buyer@example.com.");
+    });
+
+    await cdp.eval(`[...document.querySelectorAll('.dialog footer button')].find(
+      (b) => b.textContent.trim() === 'Activate').click()`);
+    await sleep(400);
+    const activated = await cdp.eval<{ with: string; heading: string; highlight: boolean; capsule: boolean }>(`({
+      with: window.__activatedWith ?? '',
+      heading: document.getElementById('license-title')?.textContent?.trim() ?? '',
+      highlight: document.querySelector('.tools button[title^="Highlight"]')?.disabled ?? true,
+      capsule: !!document.querySelector('.toolbar .trial'),
+    })`);
+    check("activation sends the key without the wrapping", () => assert.equal(activated.with, licenseKey));
+    check("activating unlocks editing and says who it is licensed to", () => {
+      assert.match(activated.heading, /Licensed to buyer@example.com/);
+      assert.ok(!activated.highlight, "tools still disabled");
+      assert.ok(!activated.capsule, "trial capsule still shown");
+    });
+    await cdp.eval(`[...document.querySelectorAll('.dialog footer button')].find(
+      (b) => b.textContent.trim() === 'Done').click()`);
 
     check("no uncaught errors in the page", () => {
       assert.deepEqual(consoleErrors, []);

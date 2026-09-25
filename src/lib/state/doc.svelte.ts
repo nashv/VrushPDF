@@ -14,6 +14,8 @@
  * access, and deep-proxying a multi-megabyte byte array is pure overhead.
  */
 import { blankPdfBytes } from "$lib/annotations/blank";
+import type { FieldValues } from "$lib/annotations/fields";
+import { loadWidgets, sameValue, storageEntry, type FormWidget } from "$lib/pdf/forms";
 import { loadDocument, loadOutline, type OutlineNode, type PDFDocumentProxy, type PDFPageProxy } from "$lib/pdf/pdfjs";
 import { pageSize } from "$lib/pdf/render";
 import { fileMeta } from "$lib/tauri/files";
@@ -57,6 +59,23 @@ export class DocStore {
   wasEncrypted = $state(false);
   loading = $state(false);
   error = $state<string | null>(null);
+
+  /*
+   * Form widgets of the main document, registered page by page as pages load
+   * rather than all at once on open, which would parse every page's
+   * annotations up front.
+   */
+  #widgets = new Map<string, FormWidget>();
+  #widgetPages = new Map<number, Promise<FormWidget[]>>();
+  /** The values last pushed into pdf.js's storage, re-applied to late pages. */
+  #fieldValues: FieldValues = {};
+  /**
+   * Bumped when field values change what a page should draw; the page views
+   * re-render on it. Debounced so typing does not re-render every keystroke —
+   * the field being typed in hides the canvas beneath it anyway.
+   */
+  formRevision = $state(0);
+  #revisionTimer: ReturnType<typeof setTimeout> | undefined;
 
   get main(): SourceDoc | null {
     return this.sources.get(MAIN_DOC) ?? null;
@@ -175,6 +194,61 @@ export class DocStore {
     }
   }
 
+  /** The main document's fillable widgets on page `srcIndex`. */
+  widgetsOn(srcIndex: number): Promise<FormWidget[]> {
+    const main = this.main;
+    if (!main) return Promise.resolve([]);
+    let pending = this.#widgetPages.get(srcIndex);
+    if (!pending) {
+      pending = main.proxy
+        .getPage(srcIndex + 1)
+        .then(loadWidgets)
+        .then((widgets) => {
+          for (const w of widgets) {
+            this.#widgets.set(w.id, w);
+            this.#applyTo(w);
+          }
+          if (widgets.some((w) => w.name in this.#fieldValues)) this.#bumpRevision();
+          return widgets;
+        })
+        .catch(() => []);
+      this.#widgetPages.set(srcIndex, pending);
+    }
+    return pending;
+  }
+
+  /**
+   * Mirror filled-in `values` into pdf.js's annotation storage, so the canvas
+   * draws them. A field left at (or returned to) the file's own value is
+   * removed rather than stored, so the file's original appearance draws.
+   */
+  syncFields(values: FieldValues) {
+    const before = this.#fieldValues;
+    this.#fieldValues = values;
+    let changed = false;
+    for (const w of this.#widgets.values()) {
+      if (sameValue(before[w.name] ?? null, values[w.name] ?? null) && (w.name in before) === (w.name in values)) {
+        continue;
+      }
+      this.#applyTo(w);
+      changed = true;
+    }
+    if (changed) this.#bumpRevision();
+  }
+
+  #applyTo(widget: FormWidget) {
+    const storage = this.main?.proxy.annotationStorage;
+    if (!storage) return;
+    const value = this.#fieldValues[widget.name];
+    if (value === undefined || sameValue(value, widget.initial)) storage.remove(widget.id);
+    else storage.setValue(widget.id, storageEntry(widget, value));
+  }
+
+  #bumpRevision() {
+    clearTimeout(this.#revisionTimer);
+    this.#revisionTimer = setTimeout(() => this.formRevision++, 120);
+  }
+
   /** Drop sources no longer referenced by any page in the plan. */
   async pruneSources(usedIds: Set<string>) {
     const keep = new Map<string, SourceDoc>();
@@ -192,6 +266,9 @@ export class DocStore {
     const open = [...this.sources.values()];
     this.sources = new Map();
     this.#blanks.clear();
+    this.#widgets.clear();
+    this.#widgetPages.clear();
+    this.#fieldValues = {};
     this.outline = [];
     this.wasEncrypted = false;
     this.error = null;

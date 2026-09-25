@@ -121,9 +121,10 @@
     max-height: 60vh;
     overflow-y: auto;
     padding: 6px;
-    border: 1px solid var(--border);
+    border: 1px solid var(--surface-float-border);
     border-radius: var(--radius-lg);
-    background: var(--bg-raised);
+    background: var(--surface-float);
+    backdrop-filter: var(--surface-float-filter);
     box-shadow: var(--shadow-3);
   }
 

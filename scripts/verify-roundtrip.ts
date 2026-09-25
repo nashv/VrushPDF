@@ -18,6 +18,7 @@ import {
   PDFArray,
   PDFDocument,
   PDFName,
+  type PDFPage,
   PDFRawStream,
   StandardFonts,
 } from "pdf-lib";
@@ -31,6 +32,8 @@ import {
   tilesExactly,
   tokenize,
 } from "../src/lib/content/tokenizer.ts";
+import { shownText } from "../src/lib/content/text.ts";
+import { detectBlocks, type TextRun } from "../src/lib/content/blocks.ts";
 import { importAnnots } from "../src/lib/annotations/import.ts";
 import type { ImageSource } from "../src/lib/annotations/write.ts";
 import {
@@ -87,6 +90,37 @@ async function makeBasePdf(): Promise<Uint8Array> {
   const field = pdf.getForm().createTextField("verify.field");
   field.setText("widget");
   field.addToPage(pdf.getPages()[0], { x: 56, y: 120, width: 200, height: 24 });
+
+  return pdf.save({ useObjectStreams: false });
+}
+
+/**
+ * Two pages with one field of every fillable kind: a nested text field (so the
+ * fully qualified name matters), a prefilled multiline field, a checkbox, a
+ * radio group, a dropdown, and a text field with a length limit.
+ */
+async function makeFormPdf(): Promise<Uint8Array> {
+  const pdf = await PDFDocument.create();
+  const [one, two] = [pdf.addPage([612, 792]), pdf.addPage([612, 792])];
+  const form = pdf.getForm();
+
+  form.createTextField("applicant.name").addToPage(one, { x: 56, y: 700, width: 240, height: 22 });
+  const notes = form.createTextField("notes");
+  notes.enableMultiline();
+  notes.setText("already here");
+  notes.addToPage(one, { x: 56, y: 560, width: 240, height: 100 });
+  form.createCheckBox("agree").addToPage(one, { x: 56, y: 520, width: 16, height: 16 });
+
+  const size = form.createRadioGroup("size");
+  for (const [i, option] of ["S", "M", "L"].entries()) {
+    size.addOptionToPage(option, two, { x: 56 + i * 40, y: 700, width: 16, height: 16 });
+  }
+  const country = form.createDropdown("country");
+  country.addOptions(["DE", "FR", "IT"]);
+  country.addToPage(two, { x: 56, y: 640, width: 160, height: 22 });
+  const code = form.createTextField("code");
+  code.setMaxLength(6);
+  code.addToPage(two, { x: 56, y: 600, width: 120, height: 22 });
 
   return pdf.save({ useObjectStreams: false });
 }
@@ -315,6 +349,11 @@ async function main() {
         assert.equal(after.text, before.text);
         assertClose("fontSize", after.fontSize, before.fontSize);
         assert.equal(after.align, before.align);
+        // `/C` is a FreeText's background, so the text colour must not leak
+        // into it.
+        assert.equal(after.bgColor?.toLowerCase() ?? null, before.bgColor?.toLowerCase() ?? null);
+        assert.equal(after.borderColor?.toLowerCase() ?? null, before.borderColor?.toLowerCase() ?? null);
+        assertClose("borderWidth", after.borderWidth, before.borderWidth);
       }
 
       if (isNote(before) && isNote(after)) {
@@ -562,6 +601,283 @@ async function main() {
     }
   }
   check("real page content was actually exercised", () => assert.ok(streamsChecked > 0));
+
+  // ------------------------------------------------- where the operators draw
+  /*
+   * `makeBasePdf` draws its text at x:56 y:700 size:14, so the state machine's
+   * output can be checked against coordinates the fixture was actually created
+   * with rather than against my own arithmetic.
+   */
+  /*
+   * `/Contents` may be an array of streams — it is here, because the fixture
+   * adds a form widget to page 1 — and PDF treats those as one stream
+   * concatenated with whitespace between. An earlier version of this check
+   * assumed a single stream and silently skipped itself.
+   */
+  const pageContent = (page: PDFPage) => {
+    const entry = page.node.get(PDFName.of("Contents"));
+    const refs = entry instanceof PDFArray ? entry.asArray() : [entry];
+    const parts: Uint8Array[] = [];
+    for (const ref of refs) {
+      const stream = page.node.context.lookup(ref);
+      if (stream instanceof PDFRawStream) parts.push(decodePDFRawStream(stream).decode());
+    }
+    const size = parts.reduce((n, p) => n + p.length + 1, 0);
+    const out = new Uint8Array(size);
+    let at = 0;
+    for (const part of parts) {
+      out.set(part, at);
+      at += part.length;
+      out[at++] = 0x0a;
+    }
+    return out;
+  };
+
+  {
+    const content = pageContent(realPages.getPages()[0]);
+    check("page content was read for the position checks", () =>
+      assert.ok(content.length > 0, "no content stream found, so the checks below prove nothing"),
+    );
+    const runs = shownText(content, tokenize(content));
+
+    check("every shown run is found, with its position", () => {
+      assert.ok(runs.length >= 1, "no show-text operators were attributed");
+      const drawn = runs.find((r) => r.text.includes("quick brown fox"));
+      assert.ok(drawn, `the drawn text was not found; got: ${runs.map((r) => r.text).join(" | ")}`);
+      assert.ok(Math.abs(drawn.x - 56) < 0.01, `x was ${drawn.x}, drawn at 56`);
+      assert.ok(Math.abs(drawn.y - 700) < 0.01, `y was ${drawn.y}, drawn at 700`);
+      assert.equal(drawn.size, 14);
+      assert.ok(drawn.font.startsWith("/"), `font resource looks wrong: ${drawn.font}`);
+    });
+
+    check("runs carry the tokens needed to rewrite them", () => {
+      const drawn = runs.find((r) => r.text.includes("quick brown fox"))!;
+      assert.ok(drawn.stringTokens.length >= 1, "no string token recorded");
+      assert.equal(drawn.ordinal, runs.indexOf(drawn), "ordinals are not sequential");
+    });
+  }
+
+  // Synthetic streams, where the expected geometry is unambiguous.
+  const runsOf = (src: string) => {
+    const b = bytesOf(src);
+    return shownText(b, tokenize(b));
+  };
+
+  check("Td accumulates along the line", () => {
+    const runs = runsOf("BT /F1 10 Tf 10 20 Td (a) Tj 5 0 Td (b) Tj ET");
+    assert.deepEqual(runs.map((r) => [r.x, r.y]), [[10, 20], [15, 20]]);
+  });
+
+  check("T* steps down by the leading", () => {
+    const runs = runsOf("BT /F1 10 Tf 15 TL 10 100 Td (a) Tj T* (b) Tj ET");
+    assert.deepEqual(runs.map((r) => [r.x, r.y]), [[10, 100], [10, 85]]);
+  });
+
+  check("cm offsets the text, and Q restores it", () => {
+    const runs = runsOf("q 1 0 0 1 100 200 cm BT /F1 10 Tf 5 5 Td (a) Tj ET Q BT /F1 10 Tf 5 5 Td (b) Tj ET");
+    assert.deepEqual(runs.map((r) => [r.x, r.y]), [[105, 205], [5, 5]]);
+  });
+
+  check("Tm replaces rather than accumulates", () => {
+    const runs = runsOf("BT /F1 10 Tf 10 10 Td 1 0 0 1 70 700 Tm (a) Tj ET");
+    assert.deepEqual(runs.map((r) => [r.x, r.y]), [[70, 700]]);
+  });
+
+  check("a TJ array is one run, kerning numbers ignored", () => {
+    const runs = runsOf("BT /F1 10 Tf 10 10 Td [(Hel) -120 (lo)] TJ ET");
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0].text, "Hello");
+  });
+
+  check("string escapes are decoded", () => {
+    const runs = runsOf("BT /F1 10 Tf 0 0 Td (a\\(b\\)c) Tj ET");
+    assert.equal(runs[0].text, "a(b)c");
+  });
+
+  check("hex strings are decoded", () => {
+    const runs = runsOf("BT /F1 10 Tf 0 0 Td <48656C6C6F> Tj ET");
+    assert.equal(runs[0].text, "Hello");
+  });
+
+  // --------------------------------------------------------- block detection
+  /*
+   * Synthetic runs, because the expected grouping has to be unambiguous. Every
+   * rule here is a heuristic; these fix the behaviour that later stages rely on.
+   */
+  const line = (text: string, x: number, y: number, width = 200, fontSize = 12): TextRun => ({
+    text, x, y, width, fontSize,
+  });
+
+  check("consecutive lines at the same leading are one paragraph", () => {
+    const blocks = detectBlocks([
+      line("first line of the paragraph", 56, 700),
+      line("second line of the paragraph", 56, 686),
+      line("third line of the paragraph", 56, 672),
+    ]);
+    assert.equal(blocks.length, 1);
+    assert.equal(blocks[0].lines.length, 3);
+  });
+
+  check("a wide vertical gap splits paragraphs", () => {
+    const blocks = detectBlocks([
+      line("end of the first paragraph", 56, 700),
+      line("start of the second", 56, 640),
+    ]);
+    assert.equal(blocks.length, 2);
+  });
+
+  check("two columns do not weld into one block", () => {
+    const blocks = detectBlocks([
+      line("left column line one", 56, 700, 200),
+      line("right column line one", 320, 700, 200),
+      line("left column line two", 56, 686, 200),
+      line("right column line two", 320, 686, 200),
+    ]);
+    assert.equal(blocks.length, 2, `got ${blocks.length}: ${blocks.map((b) => b.text).join(" / ")}`);
+    assert.ok(blocks.every((b) => b.lines.length === 2), "columns were not kept whole");
+  });
+
+  check("a heading is not absorbed into the body below it", () => {
+    const blocks = detectBlocks([
+      line("A Heading", 56, 700, 120, 22),
+      line("body text line one", 56, 676, 200, 11),
+      line("body text line two", 56, 663, 200, 11),
+    ]);
+    assert.equal(blocks.length, 2);
+    assert.equal(blocks[0].text, "A Heading");
+  });
+
+  check("an indented line starts a new block", () => {
+    const blocks = detectBlocks([
+      line("flush left line", 56, 700),
+      line("indented line", 90, 686),
+    ]);
+    assert.equal(blocks.length, 2);
+  });
+
+  check("runs on one baseline become a single line with spacing", () => {
+    const blocks = detectBlocks([
+      line("Hello", 56, 700, 30),
+      line("world", 92, 700, 30),
+    ]);
+    assert.equal(blocks.length, 1);
+    assert.equal(blocks[0].lines.length, 1);
+    assert.equal(blocks[0].lines[0].text, "Hello world");
+  });
+
+  check("a block reports a bounding box covering its lines", () => {
+    const blocks = detectBlocks([
+      line("one", 56, 700, 100),
+      line("two", 56, 686, 140),
+    ]);
+    assert.equal(blocks.length, 1);
+    assert.equal(blocks[0].x, 56);
+    assert.equal(blocks[0].width, 140);
+    assert.ok(blocks[0].y <= 686 && blocks[0].y + blocks[0].height >= 700);
+  });
+
+
+  // ------------------------------------------------------------- form fields
+  console.log("\nform fields");
+
+  const formBytes = await makeFormPdf();
+  const formPlan = plan(2);
+  const blankForm = await PDFDocument.load(formBytes);
+  // What pdf.js reports as a radio's value is its appearance state name, so
+  // take the fixture's own names rather than assuming pdf-lib's labels.
+  const sizeStates = blankForm
+    .getForm()
+    .getRadioGroup("size")
+    .acroField.getOnValues()
+    .map((n) => n.decodeText());
+
+  const filled = {
+    "applicant.name": "Ada Lovelace",
+    agree: true,
+    size: sizeStates[1],
+    country: ["FR"],
+    code: "ABCDEFGHIJ",
+  };
+  const formSave = await buildSavedPdf({
+    pages: formPlan,
+    annots: [],
+    mainDocId: MAIN,
+    getSource: sources(formBytes, new Set()),
+    resolveImage,
+    fields: filled,
+  });
+  const formOut = (await PDFDocument.load(formSave.bytes)).getForm();
+
+  check("fills every kind of field", () => {
+    assert.equal(formSave.fieldsWritten, 5);
+    assert.deepEqual(formSave.fieldsFailed, []);
+    assert.equal(formOut.getTextField("applicant.name").getText(), "Ada Lovelace");
+    assert.equal(formOut.getCheckBox("agree").isChecked(), true);
+    assert.equal(
+      formOut.getRadioGroup("size").acroField.getValue().decodeText(),
+      sizeStates[1],
+    );
+    assert.deepEqual(formOut.getDropdown("country").getSelected(), ["FR"]);
+  });
+  check("text over a field's limit is cut to it, not refused", () =>
+    assert.equal(formOut.getTextField("code").getText(), "ABCDEF"),
+  );
+  check("a field left alone keeps what the file had", () =>
+    assert.equal(formOut.getTextField("notes").getText(), "already here"),
+  );
+  check("filled fields carry a regenerated appearance", () => {
+    const widget = formOut.getTextField("applicant.name").acroField.getWidgets()[0];
+    const normal = widget.getAppearances()?.normal;
+    assert.ok(normal instanceof PDFRawStream, "no normal appearance stream");
+    // pdf-lib shows text as a hex string of Helvetica codes; "Ada" is 416461.
+    const content = new TextDecoder("latin1").decode(decodePDFRawStream(normal).decode());
+    assert.match(content, /416461/i);
+  });
+  check("Latin text does not need the viewer to draw it", () =>
+    assert.equal(formOut.acroForm.dict.get(PDFName.of("NeedAppearances")), undefined),
+  );
+
+  const greek = await buildSavedPdf({
+    pages: formPlan,
+    annots: [],
+    mainDocId: MAIN,
+    getSource: sources(formBytes, new Set()),
+    resolveImage,
+    fields: { "applicant.name": "Ελένη", nosuchfield: "x" },
+  });
+  const greekOut = (await PDFDocument.load(greek.bytes)).getForm();
+  check("text Helvetica cannot draw is kept, and left to the viewer", () => {
+    assert.equal(greekOut.getTextField("applicant.name").getText(), "Ελένη");
+    assert.ok(greekOut.acroForm.dict.get(PDFName.of("NeedAppearances")));
+  });
+  check("an unknown field is reported, and the save still succeeds", () => {
+    assert.deepEqual(greek.fieldsFailed, ["nosuchfield"]);
+    assert.equal(greek.fieldsWritten, 1);
+  });
+
+  const rotated: PageEntry[] = [
+    { ...formPlan[1] },
+    { ...formPlan[0], rotation: 90 },
+  ];
+  const formRebuilt = await buildSavedPdf({
+    pages: rotated,
+    annots: [],
+    mainDocId: MAIN,
+    getSource: sources(formBytes, new Set()),
+    resolveImage,
+    fields: filled,
+  });
+  const rebuiltForm = (await PDFDocument.load(formRebuilt.bytes)).getForm();
+  check("the rebuild path keeps the document a fillable form", () => {
+    assert.equal(formRebuilt.strategy, "rebuilt");
+    const names = rebuiltForm.getFields().map((f) => f.getName()).sort();
+    assert.deepEqual(names, ["agree", "applicant.name", "code", "country", "notes", "size"]);
+  });
+  check("and fills it", () => {
+    assert.equal(formRebuilt.fieldsWritten, 5);
+    assert.equal(rebuiltForm.getTextField("applicant.name").getText(), "Ada Lovelace");
+    assert.equal(rebuiltForm.getCheckBox("agree").isChecked(), true);
+  });
 
   console.log(
     failures === 0 ? "\nAll round-trip checks passed." : `\n${failures} check(s) FAILED.`,

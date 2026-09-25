@@ -2,9 +2,11 @@
   /** Top chrome: file actions and zoom on one row, tools and their style on the next. */
   import type { AnnotKind } from "$lib/annotations/types";
   import { images } from "$lib/state/images.svelte";
+  import { license } from "$lib/state/license.svelte";
   import { session } from "$lib/state/session.svelte";
   import { viewer, type Tool } from "$lib/state/viewer.svelte";
   import type { DocumentTab } from "$lib/state/workspace.svelte";
+  import { hasGlass } from "$lib/platform";
   import Icon, { type IconName } from "./Icon.svelte";
   import StampPicker from "./StampPicker.svelte";
 
@@ -78,6 +80,24 @@
 
   let stampOpen = $state(false);
 
+  /** The trial capsule's text; null once licensed. */
+  const trialLabel = $derived.by(() => {
+    const status = license.status;
+    if (!status || status.state === "licensed") return null;
+    if (status.state === "trial") {
+      const days = status.daysLeft ?? 0;
+      return `Trial: ${days} ${days === 1 ? "day" : "days"} left`;
+    }
+    return status.state === "revoked" ? "License revoked" : "Trial ended";
+  });
+
+  /*
+   * Under glass the title bar is gone and this is the top of the window, so its
+   * empty stretches have to move it. Only there: elsewhere the system title bar
+   * does that, and a toolbar that drags the window would be a surprise.
+   */
+  const drag = hasGlass ? "" : undefined;
+
   function setStyle(patch: Parameters<typeof viewer.setStyle>[1]) {
     if (styledKind) viewer.setStyle(styledKind, patch);
   }
@@ -89,53 +109,74 @@
   }
 </script>
 
-<header class="toolbar" class:labels={viewer.toolbarLabels}>
-  <div class="row">
-    <button
-      class="btn square"
-      class:selected={viewer.sidebarOpen}
-      title="Toggle sidebar (⌘\)"
-      onclick={() => (viewer.sidebarOpen = !viewer.sidebarOpen)}
-    >
-      <Icon name="sidebar" />
-      <span class="btn-label">Sidebar</span>
-    </button>
+<!--
+  `.cluster` groups the buttons that share a glass capsule on macOS. Everywhere
+  else it is `display: contents` and the dividers between clusters do the job.
+-->
+<header class="toolbar" class:labels={viewer.toolbarLabels} data-tauri-drag-region={drag}>
+  <div class="row" data-tauri-drag-region={drag}>
+    <div class="cluster glass">
+      <button
+        class="btn square"
+        class:selected={viewer.sidebarOpen}
+        title="Toggle sidebar (⌘\)"
+        onclick={() => (viewer.sidebarOpen = !viewer.sidebarOpen)}
+      >
+        <Icon name="sidebar" />
+        <span class="btn-label">Sidebar</span>
+      </button>
+    </div>
 
     <div class="divider"></div>
 
-    <button class="btn" title="Open… (⌘O)" onclick={() => session.openViaDialog()}>
-      <Icon name="open" />
-      <span class="btn-label always">Open</span>
-    </button>
-    <button class="btn" title="Save (⌘S)" disabled={!open} onclick={() => session.save()}>
-      <Icon name="save" />
-      <span class="btn-label always">Save</span>
-    </button>
-    <button class="btn square" title="Save As… (⇧⌘S)" disabled={!open} onclick={() => session.saveAs()}>
-      <Icon name="save-as" />
-      <span class="btn-label">Save As</span>
-    </button>
+    <div class="cluster glass">
+      <button class="btn" title="Open… (⌘O)" onclick={() => session.openViaDialog()}>
+        <Icon name="open" />
+        <span class="btn-label always">Open</span>
+      </button>
+      <button class="btn" title="Save (⌘S)" disabled={!open} onclick={() => session.save()}>
+        <Icon name="save" />
+        <span class="btn-label always">Save</span>
+      </button>
+      <button class="btn square" title="Save As… (⇧⌘S)" disabled={!open} onclick={() => session.saveAs()}>
+        <Icon name="save-as" />
+        <span class="btn-label">Save As</span>
+      </button>
+    </div>
 
     <div class="divider"></div>
 
-    <button
-      class="btn square"
-      title={tab?.edits.undoLabel ? `Undo ${tab.edits.undoLabel} (⌘Z)` : "Undo (⌘Z)"}
-      disabled={!tab?.edits.canUndo}
-      onclick={() => tab?.edits.undo()}
-    >
-      <Icon name="undo" />
-      <span class="btn-label">Undo</span>
-    </button>
-    <button
-      class="btn square"
-      title={tab?.edits.redoLabel ? `Redo ${tab.edits.redoLabel} (⇧⌘Z)` : "Redo (⇧⌘Z)"}
-      disabled={!tab?.edits.canRedo}
-      onclick={() => tab?.edits.redo()}
-    >
-      <Icon name="redo" />
-      <span class="btn-label">Redo</span>
-    </button>
+    <div class="cluster glass">
+      <button
+        class="btn square"
+        title={tab?.edits.undoLabel ? `Undo ${tab.edits.undoLabel} (⌘Z)` : "Undo (⌘Z)"}
+        disabled={!tab?.edits.canUndo}
+        onclick={() => tab?.edits.undo()}
+      >
+        <Icon name="undo" />
+        <span class="btn-label">Undo</span>
+      </button>
+      <button
+        class="btn square"
+        title={tab?.edits.redoLabel ? `Redo ${tab.edits.redoLabel} (⇧⌘Z)` : "Redo (⇧⌘Z)"}
+        disabled={!tab?.edits.canRedo}
+        onclick={() => tab?.edits.redo()}
+      >
+        <Icon name="redo" />
+        <span class="btn-label">Redo</span>
+      </button>
+    </div>
+
+    {#if trialLabel}
+      <button
+        class="trial glass"
+        class:ended={!license.canEdit}
+        title={license.canEdit ? "Enter a license key or buy VrushPDF" : "Saving and editing need a license"}
+        onclick={() => license.openDialog()}
+      >
+        {trialLabel}{license.canEdit ? "" : " · Buy"}
+      </button>
+    {/if}
 
     {#if tab?.doc.wasEncrypted}
       <span class="badge" title="This file was encrypted. Saving writes it decrypted.">
@@ -143,100 +184,108 @@
       </span>
     {/if}
 
-    <span class="spacer"></span>
+    <span class="spacer" data-tauri-drag-region={drag}></span>
 
-    <button class="btn square" title="Zoom out (⌘−)" disabled={!open} onclick={() => tab?.view.zoomBy(-1)}>
-      <Icon name="zoom-out" />
-      <span class="btn-label">Zoom Out</span>
-    </button>
-    <span class="zoom" title="Zoom level">{zoomLabel}</span>
-    <button class="btn square" title="Zoom in (⌘+)" disabled={!open} onclick={() => tab?.view.zoomBy(1)}>
-      <Icon name="zoom-in" />
-      <span class="btn-label">Zoom In</span>
-    </button>
-    <button
-      class="btn square"
-      class:selected={tab?.view.zoom === "fit-width"}
-      title="Fit width"
-      disabled={!open}
-      onclick={() => tab?.view.zoomTo("fit-width")}
-    >
-      <Icon name="fit-width" />
-      <span class="btn-label">Fit Width</span>
-    </button>
-    <button
-      class="btn square"
-      class:selected={tab?.view.zoom === "fit-page"}
-      title="Fit page (⌘0)"
-      disabled={!open}
-      onclick={() => tab?.view.zoomTo("fit-page")}
-    >
-      <Icon name="fit-page" />
-      <span class="btn-label">Fit Page</span>
-    </button>
-
-    <div class="divider"></div>
-
-    <button
-      class="btn square"
-      title="Previous page"
-      disabled={!open || currentPage === 0}
-      onclick={() => tab?.view.goToPage(currentPage - 1)}
-    >
-      <Icon name="chevron-left" />
-      <span class="btn-label">Previous</span>
-    </button>
-    <span class="pages">
-      <input
-        class="field page-input"
-        type="text"
-        inputmode="numeric"
-        value={currentPage + 1}
+    <div class="cluster glass">
+      <button class="btn square" title="Zoom out (⌘−)" disabled={!open} onclick={() => tab?.view.zoomBy(-1)}>
+        <Icon name="zoom-out" />
+        <span class="btn-label">Zoom Out</span>
+      </button>
+      <span class="zoom" title="Zoom level">{zoomLabel}</span>
+      <button class="btn square" title="Zoom in (⌘+)" disabled={!open} onclick={() => tab?.view.zoomBy(1)}>
+        <Icon name="zoom-in" />
+        <span class="btn-label">Zoom In</span>
+      </button>
+      <button
+        class="btn square"
+        class:selected={tab?.view.zoom === "fit-width"}
+        title="Fit width"
         disabled={!open}
-        aria-label="Page number"
-        onchange={(event) => gotoPage(event.currentTarget.value)}
-      />
-      <span class="muted">/ {pageCount || "–"}</span>
-    </span>
-    <button
-      class="btn square"
-      title="Next page"
-      disabled={!open || currentPage >= pageCount - 1}
-      onclick={() => tab?.view.goToPage(currentPage + 1)}
-    >
-      <Icon name="chevron-right" />
-      <span class="btn-label">Next</span>
-    </button>
+        onclick={() => tab?.view.zoomTo("fit-width")}
+      >
+        <Icon name="fit-width" />
+        <span class="btn-label">Fit Width</span>
+      </button>
+      <button
+        class="btn square"
+        class:selected={tab?.view.zoom === "fit-page"}
+        title="Fit page (⌘0)"
+        disabled={!open}
+        onclick={() => tab?.view.zoomTo("fit-page")}
+      >
+        <Icon name="fit-page" />
+        <span class="btn-label">Fit Page</span>
+      </button>
+    </div>
 
     <div class="divider"></div>
 
-    <button
-      class="btn square"
-      class:selected={viewer.inspectorOpen}
-      title="Toggle properties"
-      onclick={() => (viewer.inspectorOpen = !viewer.inspectorOpen)}
-    >
-      <Icon name="inspector" />
-      <span class="btn-label">Properties</span>
-    </button>
+    <div class="cluster glass">
+      <button
+        class="btn square"
+        title="Previous page"
+        disabled={!open || currentPage === 0}
+        onclick={() => tab?.view.goToPage(currentPage - 1)}
+      >
+        <Icon name="chevron-left" />
+        <span class="btn-label">Previous</span>
+      </button>
+      <span class="pages">
+        <input
+          class="field page-input"
+          type="text"
+          inputmode="numeric"
+          value={currentPage + 1}
+          disabled={!open}
+          aria-label="Page number"
+          onchange={(event) => gotoPage(event.currentTarget.value)}
+        />
+        <span class="muted">/ {pageCount || "–"}</span>
+      </span>
+      <button
+        class="btn square"
+        title="Next page"
+        disabled={!open || currentPage >= pageCount - 1}
+        onclick={() => tab?.view.goToPage(currentPage + 1)}
+      >
+        <Icon name="chevron-right" />
+        <span class="btn-label">Next</span>
+      </button>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="cluster glass">
+      <button
+        class="btn square"
+        class:selected={viewer.inspectorOpen}
+        title="Toggle properties"
+        onclick={() => (viewer.inspectorOpen = !viewer.inspectorOpen)}
+      >
+        <Icon name="inspector" />
+        <span class="btn-label">Properties</span>
+      </button>
+    </div>
   </div>
 
-  <div class="row tools">
-    <div class="tool-group">
+  <div class="row tools" data-tauri-drag-region={drag}>
+    <div class="tool-group" data-tauri-drag-region={drag}>
       {#each groups as group, i (i)}
         {#if i > 0}<div class="divider"></div>{/if}
-        {#each group as spec (spec.tool)}
-          <button
-            class="btn square"
-            class:selected={viewer.tool === spec.tool}
-            title="{spec.title} ({spec.key})"
-            disabled={!open}
-            onclick={() => viewer.setTool(spec.tool)}
-          >
-            <Icon name={spec.icon} />
-            <span class="btn-label">{spec.short ?? spec.title}</span>
-          </button>
-        {/each}
+        <div class="cluster glass">
+          {#each group as spec (spec.tool)}
+            <button
+              class="btn square"
+              class:selected={viewer.tool === spec.tool}
+              title="{spec.title} ({spec.key})"
+              disabled={!open || !license.allowsTool(spec.tool)}
+              onclick={() => viewer.setTool(spec.tool)}
+            >
+              <Icon name={spec.icon} />
+              <span class="btn-label">{spec.short ?? spec.title}</span>
+            </button>
+          {/each}
+        </div>
       {/each}
     </div>
 
@@ -248,12 +297,12 @@
     -->
     <div class="divider"></div>
 
-    <div class="stamp-wrap">
+    <div class="stamp-wrap glass">
       <button
         class="btn"
         class:selected={viewer.tool === "stamp" || viewer.tool === "signature"}
         title="Stamps and signatures (S)"
-        disabled={!open}
+        disabled={!open || !license.canEdit}
         onclick={() => (stampOpen = !stampOpen)}
       >
         <Icon name="signature" />
@@ -275,10 +324,10 @@
       {/if}
     </div>
 
-    <span class="spacer"></span>
+    <span class="spacer" data-tauri-drag-region={drag}></span>
 
     {#if style && styledKind}
-      <div class="style">
+      <div class="style glass">
         <span class="swatches" role="group" aria-label="Colour">
           {#each SWATCHES as colour (colour)}
             <button
@@ -493,6 +542,33 @@
     font-size: 11px;
   }
 
+  .trial {
+    flex: none;
+    height: 24px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    color: var(--text-muted);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .trial:hover {
+    color: var(--text);
+    background: var(--bg-hover);
+  }
+
+  .trial.ended {
+    border-color: transparent;
+    background: var(--danger-soft);
+    color: var(--danger);
+  }
+
+  :global([data-glass]) .trial {
+    height: 28px;
+    border-color: transparent;
+  }
+
   .zoom {
     min-width: 46px;
     text-align: center;
@@ -584,5 +660,101 @@
     align-items: center;
     gap: 5px;
     color: var(--text-muted);
+  }
+
+  /* ------------------------------------------------ Liquid Glass (macOS) */
+
+  .cluster {
+    display: contents;
+  }
+
+  /* No bar of its own: the window's glass is the toolbar, and it runs to the
+     top edge because the title bar is an overlay. */
+  :global([data-glass]) .toolbar {
+    background: none;
+    border-bottom: none;
+  }
+
+  :global([data-glass]) .row {
+    gap: 8px;
+    padding: 0 10px;
+  }
+
+  /* Clear of the traffic lights, which tauri.macos.conf.json puts in this row.
+     In full screen they leave the window, and so does their space. */
+  :global([data-glass]) .row:first-child {
+    padding-left: 90px;
+  }
+
+  :global([data-glass][data-fullscreen]) .row:first-child {
+    padding-left: 10px;
+  }
+
+  :global([data-glass]) .row.tools {
+    height: 44px;
+    border-top: none;
+  }
+
+  /* The capsules are the grouping now. */
+  :global([data-glass]) .divider {
+    display: none;
+  }
+
+  :global([data-glass]) .cluster,
+  :global([data-glass]) .stamp-wrap {
+    display: flex;
+    align-items: center;
+    flex: none;
+    padding: 2px;
+    border-radius: 999px;
+  }
+
+  /* A scroll container clips on both axes, so give the capsule shadows room
+     inside it and take the space back outside. */
+  :global([data-glass]) .tool-group {
+    gap: 8px;
+    margin: -8px 0;
+    padding: 8px 2px;
+  }
+
+  :global([data-glass]) .zoom {
+    min-width: 42px;
+  }
+
+  :global([data-glass]) .pages {
+    padding: 0 2px;
+  }
+
+  :global([data-glass]) .page-input {
+    height: 24px;
+    border-color: transparent;
+    border-radius: 999px;
+    background: var(--glass-track);
+  }
+
+  :global([data-glass]) .style {
+    height: 32px;
+    padding: 0 14px;
+    border-left: none;
+    border-radius: 999px;
+  }
+
+  :global([data-glass]) .swatch {
+    border-radius: 50%;
+  }
+
+  :global([data-glass]) .picker {
+    border-radius: 50%;
+    width: 20px;
+  }
+
+  /* Labelled buttons are too tall for a capsule to stay a capsule. */
+  :global([data-glass]) .toolbar.labels .cluster,
+  :global([data-glass]) .toolbar.labels .stamp-wrap {
+    border-radius: 16px;
+  }
+
+  :global([data-glass]) .toolbar.labels :global(.btn) {
+    border-radius: 13px;
   }
 </style>

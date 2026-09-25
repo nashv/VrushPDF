@@ -28,6 +28,7 @@ import {
 import { MAIN_DOC } from "./doc.svelte";
 import { planFor } from "./edits.svelte";
 import { images } from "./images.svelte";
+import { license } from "./license.svelte";
 import { viewer } from "./viewer.svelte";
 import { workspace, type DocumentTab } from "./workspace.svelte";
 
@@ -41,6 +42,13 @@ export interface Toast {
 export interface CloseRequest {
   tab: DocumentTab;
   resolve: (choice: "save" | "discard" | "cancel") => void;
+}
+
+/** "3 annotation(s) and 2 form field(s)", leaving out whichever is none. */
+function summary(result: { annotationsWritten: number; fieldsWritten: number }): string {
+  const parts = [`${result.annotationsWritten} annotation(s)`];
+  if (result.fieldsWritten > 0) parts.push(`${result.fieldsWritten} form field(s)`);
+  return parts.join(" and ");
 }
 
 class Session {
@@ -218,6 +226,7 @@ class Session {
       mainDocId: MAIN_DOC,
       getSource: this.#sourceBytes(tab),
       resolveImage: this.#resolveImage,
+      fields: $state.snapshot(tab.edits.fields),
     });
 
     await writeFile(path, result.bytes);
@@ -235,6 +244,7 @@ class Session {
     const tab = target ?? workspace.active;
     if (!tab) return false;
 
+    if (!license.allow("Saving")) return false;
     const path = tab.doc.path;
     if (!path) return this.saveAs(tab);
 
@@ -243,7 +253,10 @@ class Session {
       await this.#reopenAfterSave(tab, path);
 
       const detail = result.strategy === "rebuilt" ? " (document rebuilt)" : "";
-      this.notify(`Saved ${result.annotationsWritten} annotation(s)${detail}.`);
+      this.notify(`Saved ${summary(result)}${detail}.`);
+      if (result.fieldsFailed.length > 0) {
+        this.notify(`Could not fill in ${result.fieldsFailed.join(", ")}.`, "error");
+      }
       if (result.annotationsSkipped > 0) {
         this.notify(`${result.annotationsSkipped} stamp(s) had no image and were skipped.`, "error");
       }
@@ -257,6 +270,7 @@ class Session {
     const tab = target ?? workspace.active;
     if (!tab) return false;
 
+    if (!license.allow("Saving")) return false;
     const suggested = tab.doc.name || "Untitled.pdf";
     const chosen = await pickSaveTarget(suggested);
     if (!chosen) return false;
@@ -264,7 +278,7 @@ class Session {
     const done = await this.#withBusy("Saving…", async () => {
       const result = await this.#writeTo(tab, chosen);
       await this.#reopenAfterSave(tab, chosen);
-      this.notify(`Saved ${result.annotationsWritten} annotation(s) to ${chosen.split("/").pop()}.`);
+      this.notify(`Saved ${summary(result)} to ${chosen.split("/").pop()}.`);
       return true;
     });
 
@@ -308,7 +322,7 @@ class Session {
   /** Merge another PDF's pages into the active tab's plan at `at`. */
   async mergePdf(at: number) {
     const tab = workspace.active;
-    if (!tab) return;
+    if (!tab || !license.allow("Inserting pages")) return;
 
     const picked = await pickPdfToOpen(false);
     const path = picked?.[0];
@@ -338,6 +352,7 @@ class Session {
   // ------------------------------------------------------------------ merging
 
   openMergeDialog() {
+    if (!license.allow("Merging PDFs")) return;
     this.mergeOpen = true;
   }
 
@@ -363,7 +378,8 @@ class Session {
    * asking.
    */
   async mergeFiles(paths: string[]) {
-    if (paths.length === 0) return;
+    // Builds its result with `reset`, not `commit`, so it needs its own gate.
+    if (paths.length === 0 || !license.allow("Merging PDFs")) return;
 
     // Reuse an empty tab rather than stranding one behind the merge.
     const tab = workspace.tabForOpen();
@@ -415,7 +431,7 @@ class Session {
    */
   async addBlankPage(at?: number) {
     const tab = workspace.active;
-    if (!tab?.isOpen) return;
+    if (!tab?.isOpen || !license.allow("Adding pages")) return;
 
     const index = Math.max(0, Math.min(at ?? tab.insertAt, tab.edits.pages.length));
     const neighbour = tab.edits.pages[index - 1] ?? tab.edits.pages[index] ?? null;
@@ -434,6 +450,7 @@ class Session {
 
   /** Load an image from disk and arm the stamp tool with it. */
   async addImageStamp() {
+    if (!license.allow("Stamping")) return;
     const path = await pickImage();
     if (!path) return;
     await this.#withBusy("Loading image…", async () => {

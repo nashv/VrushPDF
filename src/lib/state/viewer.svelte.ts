@@ -242,7 +242,15 @@ class ViewerStore {
     this.setPanelWidth(panel, PANEL_DEFAULTS[panel]);
   }
 
+  /**
+   * Asked before every tool change. The license store installs it, so an ended
+   * trial can hold the user to the read-only tools without this store having
+   * to import that one.
+   */
+  toolGuard: (tool: Tool) => boolean = () => true;
+
   setTool(tool: Tool) {
+    if (!this.toolGuard(tool)) return;
     this.tool = tool;
     if (tool !== "stamp" && tool !== "signature") this.pendingStamp = null;
   }

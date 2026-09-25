@@ -3,7 +3,8 @@ name = "vrushpdf"
 version = "0.2.0"
 description = "A desktop PDF viewer and annotation editor"
 authors = ["nashv"]
-license = "MIT"
+license-file = "../LICENSE"
+publish = false
 repository = "https://github.com/nashv/PDFEditor"
 edition = "2021"
 
@@ -20,12 +21,16 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 dirs = "6"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Licensing (`license.rs`, `license_key.rs`): checking the keygen's
+# signatures offline. `keygen/` uses the same two.
+base64 = "0.22"
+ed25519-dalek = "3"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
@@ -40,3 +45,19 @@ strip = true
 # the path to the running one instead. macOS does it natively.
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 tauri-plugin-single-instance = "2"
+
+# The Liquid Glass window backdrop (`glass.rs`). Only the AppKit classes that
+# file touches; the crate's default features pull in the whole framework.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSButton",
+    "NSControl",
+    "NSGlassEffectView",
+    "NSGraphics",
+    "NSResponder",
+    "NSView",
+    "NSWindow",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry"] }

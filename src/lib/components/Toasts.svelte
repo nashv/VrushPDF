@@ -36,9 +36,10 @@
     gap: 9px;
     max-width: min(520px, calc(100vw - 40px));
     padding: 8px 10px 8px 12px;
-    border: 1px solid var(--border);
+    border: 1px solid var(--surface-float-border);
     border-radius: 99px;
-    background: var(--bg-raised);
+    background: var(--surface-float);
+    backdrop-filter: var(--surface-float-filter);
     box-shadow: var(--shadow-3);
     pointer-events: auto;
   }

@@ -123,6 +123,11 @@ jobs:
       - name: Type-check
         run: npm run check
 
+      # The license key and trial checks. Needs no built frontend: without the
+      # custom-protocol feature Tauri points at devUrl instead of embedding it.
+      - name: Rust unit tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+
       # Builds only. Deliberately no release inputs: with four jobs in
       # parallel each would try to create the release, and a *draft* cannot be
       # looked up by tag, so several drafts appear and the assets scatter

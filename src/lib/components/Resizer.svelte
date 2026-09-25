@@ -118,6 +118,21 @@
     outline: none;
   }
 
+  /*
+   * Liquid Glass (macOS): the panes are separate cards, so there is no line to
+   * draw; the handle is the gutter between them, and shows a short grip.
+   */
+  :global([data-glass]) .resizer {
+    width: var(--pane-gap);
+    background: none;
+  }
+
+  :global([data-glass]) .resizer:hover,
+  :global([data-glass]) .resizer:focus-visible,
+  :global([data-glass]) .resizer.dragging {
+    background: linear-gradient(var(--accent), var(--accent)) center / 3px 36px no-repeat;
+  }
+
   /* The panels overlay at this width, so there is nothing to divide. */
   @media (max-width: 899px) {
     .resizer {

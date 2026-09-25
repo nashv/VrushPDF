@@ -1,21 +1,37 @@
-MIT License
+VrushPDF End User License Agreement
 
-Copyright (c) 2026 nashv
+Copyright (c) 2026 nashv. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+DRAFT - have this reviewed before selling. It replaces the MIT license from
+version 0.3.0 on; copies of earlier versions received under MIT keep the
+rights MIT gave them.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. License. When you buy VrushPDF you receive a license key. Subject to this
+   agreement, it lets you install and use VrushPDF on up to three computers
+   you own or control at the same time, for as long as you like. A version
+   you have paid for does not stop working.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. Trial. Without a key you may use VrushPDF free for 14 days to evaluate it.
+   After that it opens and displays PDFs, but saving and editing need a key.
+
+3. Restrictions. You may not share, sell, rent or publish your license key;
+   remove or circumvent the licensing; or distribute VrushPDF or modified
+   copies of it. The source code is confidential and is not licensed to you.
+
+4. Activation. Activating a key sends the key, a one-way hash of an identifier
+   of your computer, and the computer's name to the VrushPDF license server.
+   Nothing about your documents is ever sent.
+
+5. Refunds. A refunded or charged-back purchase ends the license, and the key
+   stops working.
+
+6. No warranty. VrushPDF is provided "as is", without warranty of any kind,
+   express or implied, including merchantability, fitness for a particular
+   purpose and non-infringement. Keep backups of important documents.
+
+7. Liability. To the extent the law allows, the author is not liable for any
+   claim, damages or other liability arising from the software or its use.
+   Where liability cannot be excluded, it is limited to the price you paid.
+
+Third-party components are used under their own licenses; see the notices
+shipped with the application.

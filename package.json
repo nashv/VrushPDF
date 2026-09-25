@@ -14,9 +14,11 @@
     "verify:roundtrip": "tsx scripts/verify-roundtrip.ts",
     "tauri": "tauri",
     "verify:ui": "tsx scripts/verify-ui.ts",
-    "fixture:pdf": "tsx scripts/fixtures/make-test-pdf.ts"
+    "fixture:pdf": "tsx scripts/fixtures/make-test-pdf.ts",
+    "keygen": "cargo run -q --manifest-path keygen/Cargo.toml --"
   },
-  "license": "MIT",
+  "license": "UNLICENSED",
+  "private": true,
   "dependencies": {
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.7.3",

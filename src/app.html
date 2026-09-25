@@ -13,8 +13,20 @@
        */
       (function () {
         var ua = navigator.userAgent;
-        document.documentElement.dataset.platform =
+        var root = document.documentElement;
+        root.dataset.platform =
           ua.indexOf("Mac") !== -1 ? "mac" : ua.indexOf("Win") !== -1 ? "win" : "linux";
+        /*
+         * Inside the real macOS window the webview is transparent over system
+         * Liquid Glass (src-tauri/src/glass.rs), and the stylesheet switches to
+         * translucent chrome. wry's `ipc` message handler is what tells that
+         * window apart from `vite dev` or the stubbed browser in verify-ui,
+         * neither of which has anything behind the page.
+         */
+        var handlers = window.webkit && window.webkit.messageHandlers;
+        if (root.dataset.platform === "mac" && handlers && handlers.ipc) {
+          root.dataset.glass = "";
+        }
       })();
     </script>
     %sveltekit.head%

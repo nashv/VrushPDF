@@ -169,4 +169,21 @@
     flex: none;
     font-variant-numeric: tabular-nums;
   }
+
+  /* Liquid Glass (macOS): no document yet, so nothing opaque; the window's
+     glass shows through and the recents sit on it as a card. */
+  :global([data-glass]) .welcome {
+    background: none;
+  }
+
+  :global([data-glass]) ul {
+    border: none;
+    border-radius: var(--pane-radius);
+    background: var(--pane-fill);
+    box-shadow: var(--glass-edge), var(--glass-lift);
+  }
+
+  :global([data-glass]) li + li {
+    border-top-color: var(--glass-stroke);
+  }
 </style>

@@ -336,6 +336,23 @@
     }
   }
 
+  /* Liquid Glass (macOS): an inset card, as the sidebar is. */
+  :global([data-glass]) .inspector {
+    border-left: none;
+    border-radius: var(--pane-radius);
+    background: var(--pane-fill);
+    box-shadow: var(--glass-edge), var(--glass-lift);
+  }
+
+  @media (max-width: 899px) {
+    :global([data-glass]) .inspector {
+      right: var(--pane-gap);
+      bottom: var(--pane-gap);
+      background: var(--surface-float);
+      backdrop-filter: var(--surface-float-filter);
+    }
+  }
+
   /* Centred in the panel rather than pinned near the top, which left it
      floating above a large empty area. */
   .empty {
