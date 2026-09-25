@@ -153,6 +153,10 @@ jobs:
             const fs = require('node:fs');
             const path = require('node:path');
             for (const from of JSON.parse(process.env.ARTIFACT_PATHS)) {
+              // The .app is a directory the DMG already contains; copied here,
+              // the release job's find -type f would spill its insides
+              // (Info.plist, the bare binary) into the release as loose files.
+              if (from.endsWith('.app')) continue;
               const to = path.join('dist-artifacts', path.basename(from));
               fs.cpSync(from, to, { recursive: true });
               console.log(path.basename(from));
