@@ -18,12 +18,12 @@ rights MIT gave them.
    remove or circumvent the licensing; or distribute VrushPDF or modified
    copies of it. The source code is confidential and is not licensed to you.
 
-4. Activation. Activating a key sends the key, a one-way hash of an identifier
-   of your computer, and the computer's name to the VrushPDF license server.
-   Nothing about your documents is ever sent.
+4. Activation. Your key is checked on your computer. VrushPDF sends nothing
+   over the network: not the key, not anything about your computer, and never
+   anything about your documents.
 
-5. Refunds. A refunded or charged-back purchase ends the license, and the key
-   stops working.
+5. Refunds. A refunded or charged-back purchase ends the license, and later
+   versions of VrushPDF refuse the key.
 
 6. No warranty. VrushPDF is provided "as is", without warranty of any kind,
    express or implied, including merchantability, fitness for a particular
