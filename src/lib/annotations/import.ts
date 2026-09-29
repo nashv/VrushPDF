@@ -32,6 +32,7 @@ import {
   type Point,
   type Quad,
   type Rect,
+  type Rotation,
 } from "./types";
 
 export interface ImportResult {
@@ -66,7 +67,9 @@ const lookupName = (dict: PDFDict, key: string): string | null => {
 
 function lookupText(dict: PDFDict, key: string): string | null {
   const v = dict.lookupMaybe(PDFName.of(key), PDFString, PDFHexString);
-  return v ? v.decodeText() : null;
+  if (v) return v.decodeText();
+  const name = dict.lookupMaybe(PDFName.of(key), PDFName);
+  return name ? name.decodeText() : null;
 }
 
 function lookupNumbers(dict: PDFDict, key: string): number[] | null {
@@ -307,6 +310,33 @@ function toAnnot(dict: PDFDict, subtype: string, pageId: string, objectNumber: n
         point: { x: rect.x, y: rect.y + Math.max(rect.h, NOTE_SIZE) },
         icon: noteIcon(dict),
       };
+    }
+
+    case "Stamp": {
+      const rect = rectOf(dict);
+      if (!rect) return null;
+      const vs = dict.lookupMaybe(PDFName.of("VrushStamp"), PDFDict);
+      if (vs) {
+        const imageId = lookupText(vs, "ImageId") || "stamp";
+        const rot = lookupNumber(vs, "Rotation") ?? 0;
+        const rotation = (rot === 90 || rot === 180 || rot === 270 ? rot : 0) as Rotation;
+        const isSig = vs.get(PDFName.of("IsSignature"));
+        const isSignature =
+          typeof isSig === "boolean"
+            ? isSig
+            : isSig instanceof PDFName
+              ? isSig.decodeText() === "true"
+              : false;
+        return {
+          ...base,
+          kind: "stamp",
+          rect,
+          imageId,
+          rotation,
+          isSignature,
+        };
+      }
+      return null;
     }
 
     default:

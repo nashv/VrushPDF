@@ -65,6 +65,20 @@
         <span class="note muted">Put a caption under every toolbar button.</span>
       </span>
     </label>
+
+    <label class="row">
+      <input
+        type="checkbox"
+        checked={settings.warnUnflattenedSignatures}
+        onchange={(event) => settings.setWarnUnflattenedSignatures(event.currentTarget.checked)}
+      />
+      <span class="lines">
+        <span>Warn when saving signed documents unflattened</span>
+        <span class="note muted">
+          Prompt before saving a document that contains signatures to prevent leaving them as editable annotations.
+        </span>
+      </span>
+    </label>
   </div>
 
   <footer>

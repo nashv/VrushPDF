@@ -15,7 +15,8 @@
 import { degrees, PDFDocument, type PDFPage } from "pdf-lib";
 
 import { applyFieldValues, registerFields, type FieldValues } from "./fields";
-import { attachAnnots, prepareWrite, stripImported, type ImageSource } from "./write";
+import { registerOutlines } from "./outlines";
+import { attachAnnots, flattenAnnots, prepareWrite, stripImported, type ImageSource } from "./write";
 import type { Annot, PageEntry } from "./types";
 
 export interface SourceBytes {
@@ -34,6 +35,8 @@ export interface SaveRequest {
   fields?: FieldValues;
   /** Skip the fast path even when the plan looks unchanged. */
   forceRebuild?: boolean;
+  /** Flatten all annotations and form fields into page graphics. */
+  flatten?: boolean;
 }
 
 export interface SaveResult {
@@ -96,10 +99,23 @@ export async function buildSavedPdf(request: SaveRequest): Promise<SaveResult> {
   for (const { entry, page } of prepared.pagePairs) {
     const pageAnnots = byPage.get(entry.id) ?? [];
     requested += pageAnnots.length;
-    written += attachAnnots(ctx, page, pageAnnots);
+    if (request.flatten) {
+      written += flattenAnnots(ctx, page, pageAnnots);
+    } else {
+      written += attachAnnots(ctx, page, pageAnnots);
+    }
   }
 
   const fields = await applyFieldValues(prepared.doc, request.fields ?? {});
+
+  if (request.flatten) {
+    try {
+      const form = prepared.doc.getForm();
+      form.flatten();
+    } catch {
+      // Form was absent or already flat.
+    }
+  }
 
   // Appearances were regenerated field by field above, where one that cannot
   // be drawn in Helvetica is left to the viewer. pdf-lib's own pass would
@@ -219,6 +235,8 @@ async function rebuild(
     mainDoc,
     pagePairs.filter((p) => p.entry.sourceDocId === mainDocId).map((p) => p.page),
   );
+
+  registerOutlines(out, mainDoc, pagePairs, mainDocId);
 
   return { doc: out, pagePairs, strategy: "rebuilt" };
 }

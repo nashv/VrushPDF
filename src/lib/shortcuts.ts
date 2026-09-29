@@ -88,7 +88,17 @@ export function handleShortcut(event: KeyboardEvent) {
         return;
       case "s":
         event.preventDefault();
-        void (event.shiftKey ? session.saveAs() : session.save());
+        if (event.altKey) {
+          void session.saveFlattened();
+        } else if (event.shiftKey) {
+          void session.saveAs();
+        } else {
+          void session.save();
+        }
+        return;
+      case "p":
+        event.preventDefault();
+        if (tab) void session.print();
         return;
       case "z":
         event.preventDefault();

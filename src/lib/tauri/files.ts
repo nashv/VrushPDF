@@ -30,9 +30,24 @@ export async function readFile(path: string): Promise<Uint8Array> {
   return new Uint8Array(buf);
 }
 
-export async function writeFile(path: string, bytes: Uint8Array): Promise<FileMeta> {
+export async function writeFile(
+  path: string,
+  bytes: Uint8Array,
+  password?: string,
+): Promise<FileMeta> {
+  const headers: Record<string, string> = { "x-file-path": encodeURIComponent(path) };
+  if (password) {
+    headers["x-password"] = encodeURIComponent(password);
+  }
   return invoke<FileMeta>("write_file", bytes, {
-    headers: { "x-file-path": encodeURIComponent(path) },
+    headers,
+  });
+}
+
+export async function printPdf(bytes: Uint8Array, docTitle = "Document"): Promise<void> {
+  const headers: Record<string, string> = { "x-doc-title": encodeURIComponent(docTitle) };
+  return invoke<void>("print_pdf", bytes, {
+    headers,
   });
 }
 
@@ -49,6 +64,7 @@ export const recentsClear = () => invoke<void>("recents_clear");
 /** Preferences Rust needs at startup; see `src-tauri/src/settings.rs`. */
 export interface AppSettings {
   singleInstance: boolean;
+  warnUnflattenedSignatures?: boolean;
 }
 
 export const settingsGet = () => invoke<AppSettings>("settings_get");

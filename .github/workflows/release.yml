@@ -1,5 +1,5 @@
 # Builds the installers for every platform and, on a version tag, attaches them
-# to a draft GitHub Release.
+# to a draft GitHub Release in the public VrushPDF repository.
 #
 # Tauri cannot cross-compile, so each installer has to be produced on its own
 # operating system — that is the whole reason this runs in CI rather than on a
@@ -8,6 +8,8 @@
 # Note this repository is private, so Actions minutes are billed: macOS runners
 # at 10x and Windows at 2x. Use the manual `workflow_dispatch` trigger while
 # iterating on the pipeline and keep tags for real releases.
+# The release job publishes to the public repository (e.g. nashv/VrushPDF) using
+# secrets.PUBLIC_REPO_TOKEN or secrets.RELEASE_TOKEN.
 name: release
 
 on:

@@ -1,4 +1,5 @@
 mod commands;
+pub mod encrypt;
 #[cfg(target_os = "macos")]
 mod glass;
 mod license;
@@ -87,6 +88,8 @@ pub fn run() {
             commands::license_status,
             commands::license_activate,
             commands::license_remove,
+            commands::get_desktop_environment,
+            commands::print_pdf,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

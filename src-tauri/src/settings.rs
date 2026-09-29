@@ -24,11 +24,16 @@ pub struct Settings {
     /// Hand a double-clicked file to the running app instead of starting
     /// another copy. Always effectively true on macOS, which does it for us.
     pub single_instance: bool,
+    /// Warn before saving a signed document unflattened.
+    pub warn_unflattened_signatures: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { single_instance: true }
+        Self {
+            single_instance: true,
+            warn_unflattened_signatures: true,
+        }
     }
 }
 

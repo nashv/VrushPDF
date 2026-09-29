@@ -142,6 +142,14 @@
         <Icon name="save-as" />
         <span class="btn-label">Save As</span>
       </button>
+      <button class="btn square" title="Save Flattened… (⌥⌘S)" disabled={!open} onclick={() => session.saveFlattened()}>
+        <Icon name="save-flattened" />
+        <span class="btn-label">Flatten</span>
+      </button>
+      <button class="btn square" title="Print… (⌘P)" disabled={!open} onclick={() => session.print()}>
+        <Icon name="print" />
+        <span class="btn-label">Print</span>
+      </button>
     </div>
 
     <div class="divider"></div>
@@ -179,8 +187,8 @@
     {/if}
 
     {#if tab?.doc.wasEncrypted}
-      <span class="badge" title="This file was encrypted. Saving writes it decrypted.">
-        <Icon name="warning" size={12} /> decrypted on save
+      <span class="badge" title="This file is password protected and encrypted.">
+        <Icon name="lock" size={12} /> encrypted
       </span>
     {/if}
 

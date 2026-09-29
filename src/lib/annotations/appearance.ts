@@ -15,8 +15,10 @@ import {
   isFreeText,
   isInk,
   isLineShape,
+  isNote,
   isStamp,
   isTextMarkup,
+  NOTE_SIZE,
   rectFromQuad,
   type Annot,
   type Point,
@@ -407,6 +409,24 @@ function stampAppearance(a: Annot, imageName: string): Appearance | null {
   return { ops, bbox: a.rect, needs: { image: imageName } };
 }
 
+function noteAppearance(a: Annot): Appearance | null {
+  if (!isNote(a)) return null;
+  const x = a.point.x;
+  const y = a.point.y - NOTE_SIZE;
+  const w = NOTE_SIZE;
+  const h = NOTE_SIZE;
+  const ops = [
+    fillColor(a.color || "#eab308"),
+    `${num(x)} ${num(y)} ${num(w)} ${num(h)} re`,
+    "f",
+    strokeColor("#ca8a04"),
+    "1 w",
+    `${num(x + 0.5)} ${num(y + 0.5)} ${num(w - 1)} ${num(h - 1)} re`,
+    "S",
+  ].join("\n");
+  return { ops, bbox: { x, y, w, h }, needs: {} };
+}
+
 /**
  * Build the appearance for `annot`, or `null` when the kind doesn't use one
  * (sticky notes rely on the viewer's own note icon).
@@ -421,6 +441,7 @@ export function buildAppearance(
   if (isLineShape(annot)) return lineAppearance(annot);
   if (isFreeText(annot)) return freeTextAppearance(annot, ctx.measure, ctx.encode);
   if (isStamp(annot)) return stampAppearance(annot, ctx.imageName ?? "Im0");
+  if (isNote(annot)) return noteAppearance(annot);
   return null;
 }
 

@@ -202,8 +202,16 @@ function geometryEntries(annot: Annot): Record<string, unknown> {
 
   if (isStamp(annot)) {
     // A custom stamp still needs a `/Name`; the appearance stream is what
-    // actually gets drawn.
-    return { Name: "Draft" };
+    // actually gets drawn. VrushStamp metadata carries the image id, rotation
+    // and signature flag for lossless round-trip re-importing.
+    return {
+      Name: "Draft",
+      VrushStamp: {
+        ImageId: PDFString.of(annot.imageId),
+        Rotation: annot.rotation,
+        IsSignature: annot.isSignature,
+      },
+    };
   }
 
   return {};
@@ -326,6 +334,60 @@ export function attachAnnots(ctx: WriteContext, page: PDFPage, annots: Annot[]):
       written++;
     }
   }
+  return written;
+}
+
+/**
+ * Flatten annotations into the page's content stream.
+ *
+ * Each annotation's appearance stream is registered as a Form XObject and
+ * invoked in a new content stream on the page, burning it into the page's
+ * background graphics rather than attaching it to `/Annots`.
+ */
+export function flattenAnnots(ctx: WriteContext, page: PDFPage, annots: Annot[]): number {
+  if (annots.length === 0) return 0;
+  let written = 0;
+  const ops: string[] = [];
+
+  for (const annot of annots) {
+    const imageRef = isStamp(annot) ? ctx.images.get(annot.imageId) : undefined;
+    if (isStamp(annot) && !imageRef) continue;
+
+    const appearance = buildAppearance(annot, {
+      measure: (text, size) => safeWidth(ctx.font, text, size),
+      encode: (text) => ctx.font.encodeText(sanitize(text)).toString(),
+      imageName: "Im0",
+    });
+    if (!appearance) continue;
+
+    const apRef = registerAppearance(ctx, appearance, imageRef);
+    const xName = page.node.newXObject("FlatAp", apRef);
+
+    let gsName: PDFName | undefined;
+    if (annot.opacity < 1) {
+      const gs = ctx.doc.context.obj({
+        Type: "ExtGState",
+        ca: clamp01(annot.opacity),
+        CA: clamp01(annot.opacity),
+      });
+      gsName = page.node.newExtGState("FlatGS", gs);
+    }
+
+    ops.push("q");
+    if (gsName) {
+      ops.push(`${gsName.asString()} gs`);
+    }
+    ops.push(`${xName.asString()} Do`);
+    ops.push("Q");
+    written++;
+  }
+
+  if (ops.length > 0) {
+    const contentStream = ctx.doc.context.flateStream(ops.join("\n"));
+    const contentStreamRef = ctx.doc.context.register(contentStream);
+    page.node.addContentStream(contentStreamRef);
+  }
+
   return written;
 }
 

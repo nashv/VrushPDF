@@ -9,6 +9,7 @@
   import MergeDialog from "$lib/components/MergeDialog.svelte";
   import PasswordDialog from "$lib/components/PasswordDialog.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
+  import SignatureWarningDialog from "$lib/components/SignatureWarningDialog.svelte";
   import Resizer from "$lib/components/Resizer.svelte";
   import SignaturePad from "$lib/components/SignaturePad.svelte";
   import Sidebar from "$lib/components/Sidebar.svelte";
@@ -172,6 +173,7 @@
 {/if}
 
 <ConfirmDialog />
+<SignatureWarningDialog />
 <Toasts />
 
 <style>

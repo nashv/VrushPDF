@@ -56,7 +56,7 @@ Dropping several PDFs at once opens each in its own tab.
 ### Shortcuts worth knowing
 
 `⌘T` new tab · `⌘W` close tab (prompts if unsaved) · `⌘1`–`⌘9` jump to a tab ·
-`⌃Tab` / `⌘⇧[` `⌘⇧]` cycle tabs · `⌘O` open · `⌘S` / `⇧⌘S` save · `⌘Z` / `⇧⌘Z`
+`⌃Tab` / `⌘⇧[` `⌘⇧]` cycle tabs · `⌘O` open · `⌘S` / `⇧⌘S` save · `⌥⌘S` save flattened · `⌘P` print · `⌘Z` / `⇧⌘Z`
 undo · `⌘F` find · `⌘0` fit page · `⌥⌘0` actual size · `⌘\` toggle sidebar ·
 `⌥⌘←` `⌥⌘→` page back/forward · `Home` / `End` first/last page · `⌥⌘↑` `⌥⌘↓`
 move the selected page · `⇧⌘−` `⇧⌘=` rotate.
@@ -114,13 +114,9 @@ window minimum is 640×480.
 
 ### Settings
 
-**⌘,** opens Settings. *Open files in the running app* decides whether
-double-clicking a PDF adds a tab to the window you already have or starts
-another copy; it is stored in `settings.json` under the app config directory
-rather than in `localStorage`, because Rust reads it while the app is still
-being assembled and no webview exists yet to ask. On macOS the control is shown
-but disabled: the system never launches a second copy of a bundled app, and
-delivers the file as an Apple Event instead.
+**⌘,** opens Settings.
+- *Open files in the running app* decides whether double-clicking a PDF adds a tab to the window you already have or starts another copy; it is stored in `settings.json` under the app config directory rather than in `localStorage`, because Rust reads it while the app is still being assembled and no webview exists yet to ask. On macOS the control is shown but disabled: the system never launches a second copy of a bundled app, and delivers the file as an Apple Event instead.
+- *Warn when saving signed documents unflattened* prompts to flatten the document when saving files containing drawn signatures, preventing them from remaining as extractable or editable annotation objects. It can be toggled on or permanently off.
 
 ### Licensing
 
@@ -150,11 +146,11 @@ Tauri cannot cross-compile, so each installer is built on its own OS by
 `.github/workflows/release.yml`. To cut a release:
 
 ```sh
-npm version 0.2.0 --no-git-tag-version   # tauri.conf.json reads this
-git commit -am "Release 0.2.0" && git tag v0.2.0 && git push --follow-tags
+npm version 0.4.0 --no-git-tag-version   # tauri.conf.json reads this
+git commit -am "Release 0.4.0" && git tag v0.4.0 && git push --follow-tags
 ```
 
-The workflow then builds on four runners and opens a **draft** GitHub Release
+The workflow then builds on four runners and opens a **draft** GitHub Release in the public **VrushPDF** repository
 with everything attached:
 
 | Platform | Artifacts |
@@ -257,21 +253,12 @@ and every annotation imported into the editable model is marked `noView` in
 pdf.js's annotation storage. So the overlay draws what we own, and pdf.js keeps
 drawing straight from the file whatever we don't.
 
-### Known limitations
+### Document integrity & limitations
 
-- **Stamps are not re-imported.** Recovering editable pixels from an appearance
-  stream isn't something this can do faithfully, so stamp annotations are left
-  untouched in the file. They still display correctly and survive saves; they
-  just aren't editable again after a reopen.
-- **Encrypted PDFs are saved decrypted.** The file opens with the password, but
-  `pdf-lib` writes it back without encryption. The toolbar says so when it
-  applies.
-- **The rebuild save path loses document-level structure.** `copyPages` only
-  moves the page tree, so outlines don't survive page operations. The fast path
-  (no page ops) keeps everything.
-- **Search highlight positions are approximate within a text run** — matches are
-  placed by character proportion rather than per-glyph metrics — and rotated text
-  runs are skipped for highlighting.
+- **Lossless Stamp Preservation**: Placed stamps and reusable signatures embed structured metadata in annotation dictionaries so they round-trip losslessly and remain fully editable across save/reopen cycles. Third-party unmanaged stamps continue to be safely preserved.
+- **Password Re-Encryption**: Encrypted documents opened with a password retain their encryption context and are securely re-encrypted with standard AES-128 upon saving.
+- **Outline & Structure Retention**: The rebuild save path traverses and remaps document `/Outlines` trees and destination targets across page operations (rotation, reordering, deletion, and merging).
+- **Affine Matrix Search Highlighting**: Text search computes exact 2D transformation matrix bounds, properly highlighting text runs across rotated pages and vertical text.
 
 ## Layout
 

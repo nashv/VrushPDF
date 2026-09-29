@@ -33,7 +33,9 @@ export interface SearchOptions {
 interface ItemSpan {
   start: number;
   end: number;
-  rect: Rect | null;
+  transform: number[];
+  width: number;
+  height: number;
 }
 
 const SNIPPET_PAD = 42;
@@ -42,25 +44,65 @@ const SNIPPET_PAD = 42;
 const normalize = (s: string) => s.replace(/\s+/g, " ");
 
 /**
- * Rect for one text item. `transform` is the text matrix in PDF user space;
- * `[4]`/`[5]` are the baseline origin.
+ * Compute the PDF user-space bounding rect for a slice `[from, to]` of an item
+ * using its 2D affine transformation matrix. Supports rotated, vertical and skewed text.
  */
-function itemRect(transform: number[], width: number, height: number): Rect | null {
-  const [a, b, c, d, e, f] = transform;
-  // Skewed or rotated runs would need the full matrix; skip them.
-  if (Math.abs(b) > 1e-6 || Math.abs(c) > 1e-6) return null;
-  if (a <= 0 || d <= 0) return null;
-  // `height` is the ascent-to-descent box sitting on the baseline at `f`.
-  const descent = height * 0.2;
-  return { x: e, y: f - descent, w: width, h: height };
-}
+function computeSpanSliceRect(
+  transform: number[],
+  width: number,
+  height: number,
+  from: number,
+  to: number,
+  length: number,
+): Rect {
+  const spanLen = length <= 0 ? 1 : length;
+  const t0 = Math.max(0, Math.min(1, from / spanLen));
+  const t1 = Math.max(0, Math.min(1, to / spanLen));
 
-/** Slice an item's rect by character proportion. */
-function sliceRect(rect: Rect, from: number, to: number, length: number): Rect {
-  if (length <= 0) return rect;
-  const x = rect.x + (rect.w * from) / length;
-  const w = (rect.w * (to - from)) / length;
-  return { x, y: rect.y, w: Math.max(w, 0.5), h: rect.h };
+  const [a, b, c, d, e, f] = transform;
+  const scaleX = Math.hypot(a, b) || 1;
+  const scaleY = Math.hypot(c, d) || 1;
+
+  // Unit vector along the baseline
+  const ux = a / scaleX;
+  const uy = b / scaleX;
+
+  // Unit vector perpendicular to baseline
+  const hasPerp = Math.abs(c) > 1e-6 || Math.abs(d) > 1e-6;
+  const vx = hasPerp ? c / scaleY : -uy;
+  const vy = hasPerp ? d / scaleY : ux;
+
+  const xStart = t0 * width;
+  const xEnd = t1 * width;
+
+  // In PDF font metric conventions, descent is ~0.2 of total font height
+  const effectiveHeight = height > 0 ? height : scaleY;
+  const yBottom = -0.2 * effectiveHeight;
+  const yTop = 0.8 * effectiveHeight;
+
+  const p1x = e + xStart * ux + yBottom * vx;
+  const p1y = f + xStart * uy + yBottom * vy;
+
+  const p2x = e + xEnd * ux + yBottom * vx;
+  const p2y = f + xEnd * uy + yBottom * vy;
+
+  const p3x = e + xEnd * ux + yTop * vx;
+  const p3y = f + xEnd * uy + yTop * vy;
+
+  const p4x = e + xStart * ux + yTop * vx;
+  const p4y = f + xStart * uy + yTop * vy;
+
+  const minX = Math.min(p1x, p2x, p3x, p4x);
+  const maxX = Math.max(p1x, p2x, p3x, p4x);
+  const minY = Math.min(p1y, p2y, p3y, p4y);
+  const maxY = Math.max(p1y, p2y, p3y, p4y);
+
+  return {
+    x: minX,
+    y: minY,
+    w: Math.max(maxX - minX, 0.5),
+    h: Math.max(maxY - minY, 0.5),
+  };
 }
 
 async function indexPage(doc: PDFDocumentProxy, srcIndex: number) {
@@ -78,7 +120,9 @@ async function indexPage(doc: PDFDocumentProxy, srcIndex: number) {
       spans.push({
         start: text.length,
         end: text.length + piece.length,
-        rect: itemRect(item.transform, item.width, item.height),
+        transform: item.transform,
+        width: item.width,
+        height: item.height,
       });
       text += piece;
     }
@@ -98,10 +142,10 @@ function rectsForRange(spans: ItemSpan[], start: number, end: number): Rect[] {
   const out: Rect[] = [];
   for (const span of spans) {
     if (span.end <= start || span.start >= end) continue;
-    if (!span.rect) continue;
     const from = Math.max(start, span.start) - span.start;
     const to = Math.min(end, span.end) - span.start;
-    out.push(sliceRect(span.rect, from, to, span.end - span.start));
+    const length = span.end - span.start;
+    out.push(computeSpanSliceRect(span.transform, span.width, span.height, from, to, length));
   }
   return out;
 }

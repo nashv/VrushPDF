@@ -55,8 +55,10 @@ export class DocStore {
   /** Generated blank-page sources, by `"<width>x<height>"`. */
   #blanks = new Map<string, string>();
   outline = $state.raw<OutlineNode[]>([]);
-  /** Set when the opened file was encrypted — saving writes it back decrypted. */
+  /** Set when the opened file was encrypted. */
   wasEncrypted = $state(false);
+  /** The password used to open the document, retained to re-encrypt on save. */
+  password = $state<string | undefined>(undefined);
   loading = $state(false);
   error = $state<string | null>(null);
 
@@ -127,6 +129,7 @@ export class DocStore {
 
     this.sources = new Map([[MAIN_DOC, source]]);
     this.wasEncrypted = wasEncrypted;
+    this.password = password;
     this.outline = await loadOutline(doc);
     if (path) void recents.add(path);
     return source;
@@ -271,6 +274,7 @@ export class DocStore {
     this.#fieldValues = {};
     this.outline = [];
     this.wasEncrypted = false;
+    this.password = undefined;
     this.error = null;
     await Promise.all(open.map((s) => s.proxy.loadingTask.destroy().catch(() => {})));
   }

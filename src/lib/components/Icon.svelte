@@ -1,7 +1,7 @@
 <script lang="ts" module>
   /** Exported so callers can type their own icon-name tables. */
   export type IconName =
-    | "open" | "save" | "save-as" | "undo" | "redo"
+    | "open" | "save" | "save-as" | "save-flattened" | "print" | "undo" | "redo"
     | "cursor" | "hand" | "text" | "highlight" | "underline" | "strikeout" | "squiggly"
     | "pen" | "eraser" | "square" | "circle" | "line" | "arrow" | "textbox" | "note"
     | "stamp" | "signature"
@@ -9,7 +9,7 @@
     | "sidebar" | "inspector" | "thumbnails" | "list" | "outline" | "search"
     | "rotate-cw" | "rotate-ccw" | "trash" | "plus" | "merge" | "scissors"
     | "chevron-left" | "chevron-right" | "chevron-up" | "chevron-down" | "close" | "check"
-    | "front" | "warning" | "file";
+    | "front" | "warning" | "file" | "lock";
 </script>
 
 <script lang="ts">
@@ -23,6 +23,8 @@
     open: "M3 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z",
     save: "M5 3h11l3 3v15H5Z M8 3v6h7V3 M8 17h8",
     "save-as": "M5 3h9l4 4v8H5Z M8 3v5h6V3 M14 21l3-3 3 3-3 3Z M17 15v6",
+    "save-flattened": "M5 3h11l3 3v15H5Z M8 3v6h7V3 M8 15h8 M8 18h8",
+    print: "M6 9V3h12v6 M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2 M6 14h12v7H6Z",
     undo: "M4 10h9a5 5 0 0 1 0 10H8 M4 10l4-4 M4 10l4 4",
     redo: "M20 10h-9a5 5 0 0 0 0 10h5 M20 10l-4-4 M20 10l-4 4",
     cursor: "M5 3l14 8-6 1.5L9.5 19Z",
@@ -67,6 +69,7 @@
     front: "M12 4l8 5-8 5-8-5Z M4 14l8 5 8-5",
     warning: "M12 4l9 16H3Z M12 10v5 M12 17.5v.5",
     file: "M6 3h8l4 4v14H6Z M14 3v4h4",
+    lock: "M6 10V7a6 6 0 1 1 12 0v3 M4 10h16v11H4Z M12 14v3",
   };
 </script>
 

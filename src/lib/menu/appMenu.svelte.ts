@@ -163,6 +163,21 @@ function fileMenu(recentsSubmenu: Submenu, quit: Spec[]): Spec {
         enabled: hasDoc,
         action: () => void session.saveAs(),
       }),
+      item({
+        id: "file.saveFlattened",
+        label: "Save Flattened…",
+        accelerator: "CmdOrCtrl+Alt+S",
+        enabled: hasDoc,
+        action: () => void session.saveFlattened(),
+      }),
+      sep,
+      item({
+        id: "file.print",
+        label: "Print…",
+        accelerator: "CmdOrCtrl+P",
+        enabled: hasDoc,
+        action: () => void session.print(),
+      }),
       sep,
       item({
         id: "file.closeTab",

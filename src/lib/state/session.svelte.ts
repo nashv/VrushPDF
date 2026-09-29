@@ -14,9 +14,10 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { DEFAULT_PAGE_SIZE } from "$lib/annotations/blank";
 import { importAnnots } from "$lib/annotations/import";
 import { buildSavedPdf, type SourceBytes } from "$lib/annotations/save";
-import type { Annot, PageEntry } from "$lib/annotations/types";
+import { isStamp, type Annot, type PageEntry } from "$lib/annotations/types";
 import type { ImageSource } from "$lib/annotations/write";
 import { PasswordRequired } from "$lib/pdf/pdfjs";
+import { printPdf } from "$lib/pdf/print";
 import {
   pickImage,
   pickPdfToOpen,
@@ -29,6 +30,7 @@ import { MAIN_DOC } from "./doc.svelte";
 import { planFor } from "./edits.svelte";
 import { images } from "./images.svelte";
 import { license } from "./license.svelte";
+import { settings } from "./settings.svelte";
 import { viewer } from "./viewer.svelte";
 import { workspace, type DocumentTab } from "./workspace.svelte";
 
@@ -42,6 +44,13 @@ export interface Toast {
 export interface CloseRequest {
   tab: DocumentTab;
   resolve: (choice: "save" | "discard" | "cancel") => void;
+}
+
+/** A pending unflattened signature warning prompt, awaiting user choice. */
+export interface SignatureWarningRequest {
+  tab: DocumentTab;
+  action: "save" | "saveAs";
+  resolve: (choice: "flatten" | "unflatten" | "cancel") => void;
 }
 
 /** "3 annotation(s) and 2 form field(s)", leaving out whichever is none. */
@@ -62,6 +71,8 @@ class Session {
 
   /** Non-null while the unsaved-changes dialog is up. */
   closeRequest = $state<CloseRequest | null>(null);
+  /** Non-null while the unflattened-signature warning dialog is up. */
+  signatureWarningRequest = $state<SignatureWarningRequest | null>(null);
 
   /** True while the merge dialog is up. */
   mergeOpen = $state(false);
@@ -219,7 +230,28 @@ class Session {
     return item ? { id: item.id, bytes: item.bytes, mime: item.mime } : null;
   };
 
-  async #writeTo(tab: DocumentTab, path: string) {
+  answerSignatureWarning(choice: "flatten" | "unflatten" | "cancel") {
+    const req = this.signatureWarningRequest;
+    this.signatureWarningRequest = null;
+    req?.resolve(choice);
+  }
+
+  #tabHasSignature(tab: DocumentTab): boolean {
+    return tab.edits.annots.some(
+      (a) => isStamp(a) && (a.isSignature || a.imageId.startsWith("sig:")),
+    );
+  }
+
+  async #promptSignatureWarning(
+    tab: DocumentTab,
+    action: "save" | "saveAs",
+  ): Promise<"flatten" | "unflatten" | "cancel"> {
+    return new Promise((resolve) => {
+      this.signatureWarningRequest = { tab, action, resolve };
+    });
+  }
+
+  async #writeTo(tab: DocumentTab, path: string, options: { flatten?: boolean } = {}) {
     const result = await buildSavedPdf({
       pages: $state.snapshot(tab.edits.pages),
       annots: $state.snapshot(tab.edits.annots),
@@ -227,9 +259,10 @@ class Session {
       getSource: this.#sourceBytes(tab),
       resolveImage: this.#resolveImage,
       fields: $state.snapshot(tab.edits.fields),
+      flatten: options.flatten,
     });
 
-    await writeFile(path, result.bytes);
+    await writeFile(path, result.bytes, tab.doc.password);
     return result;
   }
 
@@ -240,19 +273,33 @@ class Session {
    * is backed by the bytes on disk — without that, a second save would replay
    * stale `managedRefs` against a file whose object numbers have changed.
    */
-  async save(target?: DocumentTab): Promise<boolean> {
+  async save(
+    target?: DocumentTab,
+    options: { flatten?: boolean; skipWarning?: boolean } = {},
+  ): Promise<boolean> {
     const tab = target ?? workspace.active;
     if (!tab) return false;
 
     if (!license.allow("Saving")) return false;
     const path = tab.doc.path;
-    if (!path) return this.saveAs(tab);
+    if (!path) return this.saveAs(tab, options);
+
+    let flatten = options.flatten ?? false;
+    if (!flatten && !options.skipWarning && this.#tabHasSignature(tab) && settings.warnUnflattenedSignatures) {
+      const choice = await this.#promptSignatureWarning(tab, "save");
+      if (choice === "cancel") return false;
+      if (choice === "flatten") flatten = true;
+    }
 
     const done = await this.#withBusy("Saving…", async () => {
-      const result = await this.#writeTo(tab, path);
+      const result = await this.#writeTo(tab, path, { flatten });
       await this.#reopenAfterSave(tab, path);
 
-      const detail = result.strategy === "rebuilt" ? " (document rebuilt)" : "";
+      const detail = flatten
+        ? " (flattened)"
+        : result.strategy === "rebuilt"
+          ? " (document rebuilt)"
+          : "";
       this.notify(`Saved ${summary(result)}${detail}.`);
       if (result.fieldsFailed.length > 0) {
         this.notify(`Could not fill in ${result.fieldsFailed.join(", ")}.`, "error");
@@ -266,23 +313,65 @@ class Session {
     return done === true;
   }
 
-  async saveAs(target?: DocumentTab): Promise<boolean> {
+  async saveAs(
+    target?: DocumentTab,
+    options: { flatten?: boolean; skipWarning?: boolean } = {},
+  ): Promise<boolean> {
     const tab = target ?? workspace.active;
     if (!tab) return false;
 
     if (!license.allow("Saving")) return false;
-    const suggested = tab.doc.name || "Untitled.pdf";
-    const chosen = await pickSaveTarget(suggested);
+
+    let flatten = options.flatten ?? false;
+    if (!flatten && !options.skipWarning && this.#tabHasSignature(tab) && settings.warnUnflattenedSignatures) {
+      const choice = await this.#promptSignatureWarning(tab, "saveAs");
+      if (choice === "cancel") return false;
+      if (choice === "flatten") flatten = true;
+    }
+
+    let defaultName = tab.doc.name || "Untitled.pdf";
+    if (flatten && !defaultName.toLowerCase().includes("flattened")) {
+      const base = defaultName.replace(/\.pdf$/i, "");
+      defaultName = `${base}_flattened.pdf`;
+    }
+
+    const chosen = await pickSaveTarget(defaultName);
     if (!chosen) return false;
 
     const done = await this.#withBusy("Saving…", async () => {
-      const result = await this.#writeTo(tab, chosen);
+      const result = await this.#writeTo(tab, chosen, { flatten });
       await this.#reopenAfterSave(tab, chosen);
-      this.notify(`Saved ${summary(result)} to ${chosen.split("/").pop()}.`);
+      const detail = flatten ? " (flattened)" : "";
+      this.notify(`Saved ${summary(result)}${detail} to ${chosen.split("/").pop()}.`);
       return true;
     });
 
     return done === true;
+  }
+
+  /** Save as a flattened file where annotations and form fields are merged into page graphics. */
+  async saveFlattened(target?: DocumentTab): Promise<boolean> {
+    return this.saveAs(target, { flatten: true, skipWarning: true });
+  }
+
+  /** Print the current document with all edits and forms applied. */
+  async print(target?: DocumentTab): Promise<void> {
+    const tab = target ?? workspace.active;
+    if (!tab?.isOpen) return;
+
+    await this.#withBusy("Preparing to print…", async () => {
+      const result = await buildSavedPdf({
+        pages: $state.snapshot(tab.edits.pages),
+        annots: $state.snapshot(tab.edits.annots),
+        mainDocId: MAIN_DOC,
+        getSource: this.#sourceBytes(tab),
+        resolveImage: this.#resolveImage,
+        fields: $state.snapshot(tab.edits.fields),
+      });
+
+      const title = tab.doc.name || "Document";
+      await printPdf(result.bytes, title);
+    });
   }
 
   /**
@@ -298,7 +387,7 @@ class Session {
     const selected = tab.edits.selectedId;
 
     const bytes = await readFile(path);
-    const source = await tab.doc.openMain(bytes, path);
+    const source = await tab.doc.openMain(bytes, path, tab.doc.password);
     const pages = planFor(source);
     const { annots, suppress, managedRefs } = await importAnnots(bytes, pages);
 

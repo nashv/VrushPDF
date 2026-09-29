@@ -16,10 +16,14 @@ import assert from "node:assert/strict";
 import {
   decodePDFRawStream,
   PDFArray,
+  PDFDict,
   PDFDocument,
   PDFName,
+  PDFNumber,
   type PDFPage,
   PDFRawStream,
+  PDFRef,
+  PDFString,
   StandardFonts,
 } from "pdf-lib";
 
@@ -43,6 +47,7 @@ import {
   isInk,
   isLineShape,
   isNote,
+  isStamp,
   isTextMarkup,
   type Annot,
   type AnnotKind,
@@ -278,24 +283,22 @@ async function main() {
   const import1 = await importAnnots(save1.bytes, basePlan);
   const byId = new Map(import1.annots.map((a) => [a.id, a]));
 
-  check("imports every kind except stamp", () => {
-    assert.equal(import1.annots.length, original.length - 1);
-    assert.ok(!import1.annots.some((a) => a.kind === "stamp"), "stamp should not import");
+  check("imports every kind including stamp", () => {
+    assert.equal(import1.annots.length, original.length);
+    assert.ok(import1.annots.some((a) => a.kind === "stamp"), "stamp should import");
   });
 
   check("ids are stable via /NM", () => {
     for (const a of original) {
-      if (a.kind === "stamp") continue;
       assert.ok(byId.has(a.id), `missing ${a.id}`);
     }
   });
 
   check("does not claim the form widget", () =>
-    assert.equal(import1.managedRefs.size, original.length - 1),
+    assert.equal(import1.managedRefs.size, original.length),
   );
 
   for (const before of original) {
-    if (before.kind === "stamp") continue;
     const after = byId.get(before.id);
 
     check(`${before.kind}: round-trips`, () => {
@@ -362,6 +365,12 @@ async function main() {
         assertClose("note.y", after.point.y, before.point.y);
       }
 
+      if (isStamp(before) && isStamp(after)) {
+        assert.equal(after.imageId, before.imageId);
+        assert.equal(after.rotation, before.rotation);
+        assert.equal(after.isSignature, before.isSignature);
+      }
+
       // Bounds should be preserved for every kind.
       const b0 = annotBounds(before);
       const b1 = annotBounds(after);
@@ -382,13 +391,13 @@ async function main() {
 
   const counted2 = await countAnnots(save2.bytes);
   check("annotation count is unchanged", () =>
-    // 11 re-emitted + the un-imported stamp + the form widget.
+    // 12 re-emitted + the form widget.
     assert.equal(counted2.total, counted1.total),
   );
   check("highlight was not duplicated", () =>
     assert.equal(counted2.bySubtype.get("Highlight"), 1),
   );
-  check("unmanaged stamp was preserved", () =>
+  check("stamp was not duplicated", () =>
     assert.equal(counted2.bySubtype.get("Stamp"), 1),
   );
   check("form widget still there", () =>
@@ -469,14 +478,79 @@ async function main() {
 
   const counted3 = await countAnnots(save3.bytes);
   check("no annotations were duplicated by the rebuild", () => {
-    // The kept annotations, plus the two things on page 1 that we never took
-    // ownership of and so copied through untouched: the stamp and the widget.
-    assert.equal(counted3.total, keptAnnots.length + 2);
+    // The kept annotations, plus the form widget on page 0.
+    assert.equal(counted3.total, keptAnnots.length + 1);
     assert.equal(counted3.bySubtype.get("Highlight"), 1);
   });
-  check("un-imported annotations survive the rebuild", () => {
+  check("stamp and widget survive the rebuild", () => {
     assert.equal(counted3.bySubtype.get("Stamp"), 1);
     assert.equal(counted3.bySubtype.get("Widget"), 1);
+  });
+
+  // Verify outline preservation in rebuild path
+  const docWithOutline = await PDFDocument.create();
+  const pageA = docWithOutline.addPage([200, 200]);
+  const pageB = docWithOutline.addPage([200, 200]);
+  const pageC = docWithOutline.addPage([200, 200]);
+
+  const outlineRoot = docWithOutline.context.obj({ Type: "Outlines" }) as PDFDict;
+  const outlineRootRef = docWithOutline.context.register(outlineRoot);
+
+  const item1 = docWithOutline.context.obj({
+    Title: PDFString.of("Chapter 1"),
+    Parent: outlineRootRef,
+    Dest: [pageA.ref, PDFName.of("XYZ"), null, null, null],
+  }) as PDFDict;
+  const item1Ref = docWithOutline.context.register(item1);
+
+  const item2 = docWithOutline.context.obj({
+    Title: PDFString.of("Chapter 2"),
+    Parent: outlineRootRef,
+    Prev: item1Ref,
+    Dest: [pageC.ref, PDFName.of("XYZ"), null, null, null],
+  }) as PDFDict;
+  const item2Ref = docWithOutline.context.register(item2);
+
+  item1.set(PDFName.of("Next"), item2Ref);
+  outlineRoot.set(PDFName.of("First"), item1Ref);
+  outlineRoot.set(PDFName.of("Last"), item2Ref);
+  outlineRoot.set(PDFName.of("Count"), PDFNumber.of(2));
+  docWithOutline.catalog.set(PDFName.of("Outlines"), outlineRootRef);
+
+  const docBytes = await docWithOutline.save();
+  const outlinePlan: PageEntry[] = [
+    { id: "pC", sourceDocId: MAIN, srcIndex: 2, rotation: 0 },
+    { id: "pA", sourceDocId: MAIN, srcIndex: 0, rotation: 0 },
+  ];
+  const outlineSave = await buildSavedPdf({
+    pages: outlinePlan,
+    annots: [],
+    mainDocId: MAIN,
+    getSource: sources(docBytes, new Set()),
+    resolveImage,
+  });
+
+  const rebuiltOutDoc = await PDFDocument.load(outlineSave.bytes);
+  check("rebuild path preserves and remaps document outlines", () => {
+    assert.equal(outlineSave.strategy, "rebuilt");
+    const outRoot = rebuiltOutDoc.catalog.lookupMaybe(PDFName.of("Outlines"), PDFDict);
+    assert.ok(outRoot, "Outlines dictionary missing from rebuilt document");
+    const firstRef = outRoot.get(PDFName.of("First")) as PDFRef;
+    assert.ok(firstRef, "First item missing");
+    const firstItem = rebuiltOutDoc.context.lookup(firstRef, PDFDict);
+    assert.equal(firstItem.lookup(PDFName.of("Title"), PDFString)?.decodeText(), "Chapter 1");
+    const dest1 = firstItem.get(PDFName.of("Dest")) as PDFArray;
+    assert.ok(dest1 instanceof PDFArray);
+    // Page A was at srcIndex 0, in outlinePlan it is placed at index 1 in the new doc
+    const newPages = rebuiltOutDoc.getPages();
+    assert.equal(dest1.get(0), newPages[1].ref);
+
+    const nextRef = firstItem.get(PDFName.of("Next")) as PDFRef;
+    const secondItem = rebuiltOutDoc.context.lookup(nextRef, PDFDict);
+    assert.equal(secondItem.lookup(PDFName.of("Title"), PDFString)?.decodeText(), "Chapter 2");
+    const dest2 = secondItem.get(PDFName.of("Dest")) as PDFArray;
+    // Page C was at srcIndex 2, in outlinePlan it is placed at index 0 in the new doc
+    assert.equal(dest2.get(0), newPages[0].ref);
   });
 
   // ------------------------------------------------- content-stream tokenizer
@@ -877,6 +951,42 @@ async function main() {
     assert.equal(formRebuilt.fieldsWritten, 5);
     assert.equal(rebuiltForm.getTextField("applicant.name").getText(), "Ada Lovelace");
     assert.equal(rebuiltForm.getCheckBox("agree").isChecked(), true);
+  });
+
+  // -------------------------------------------------------- flattening checks
+  console.log("\nFlattening…");
+  const flattened = await buildSavedPdf({
+    pages: basePlan,
+    annots: original,
+    mainDocId: MAIN,
+    getSource: sources(baseBytes, new Set()),
+    resolveImage,
+    flatten: true,
+  });
+
+  check("saving flattened writes all annotations as page graphics", () => {
+    assert.equal(flattened.annotationsWritten, original.length);
+  });
+
+  const { annots: flattenedReadBack } = await importAnnots(flattened.bytes, basePlan);
+  check("flattened annotations are burned into content streams rather than /Annots", () => {
+    assert.equal(flattenedReadBack.length, 0);
+  });
+
+  const flatFormSaved = await buildSavedPdf({
+    pages: formPlan,
+    annots: [],
+    mainDocId: MAIN,
+    getSource: sources(formBytes, new Set()),
+    resolveImage,
+    fields: filled,
+    flatten: true,
+  });
+
+  const flatFormDoc = await PDFDocument.load(flatFormSaved.bytes);
+  check("flattening a form document burns fields into static graphics", () => {
+    assert.equal(flatFormSaved.fieldsWritten, 5);
+    assert.equal(flatFormDoc.getForm().getFields().length, 0);
   });
 
   console.log(

@@ -111,7 +111,20 @@ pub fn read_file(path: String) -> Result<ipc::Response, String> {
 pub fn write_file(request: ipc::Request<'_>) -> Result<FileMeta, String> {
     require_license()?;
     let path = PathBuf::from(header(&request, "x-file-path")?);
-    let bytes = raw_body(&request)?;
+    let password = header(&request, "x-password").ok();
+    let raw_bytes = raw_body(&request)?;
+
+    let encrypted_bytes;
+    let bytes_to_write = if let Some(ref pwd) = password {
+        if !pwd.is_empty() {
+            encrypted_bytes = crate::encrypt::encrypt_pdf(raw_bytes, pwd)?;
+            &encrypted_bytes[..]
+        } else {
+            raw_bytes
+        }
+    } else {
+        raw_bytes
+    };
 
     let parent = path
         .parent()
@@ -123,7 +136,7 @@ pub fn write_file(request: ipc::Request<'_>) -> Result<FileMeta, String> {
         "{}.tmp",
         path.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default()
     ));
-    fs::write(&tmp, bytes).map_err(|e| format!("could not write {}: {e}", tmp.display()))?;
+    fs::write(&tmp, bytes_to_write).map_err(|e| format!("could not write {}: {e}", tmp.display()))?;
     fs::rename(&tmp, &path).map_err(|e| {
         let _ = fs::remove_file(&tmp);
         format!("could not save {}: {e}", path.display())
@@ -352,6 +365,205 @@ pub async fn license_activate(key: String) -> Result<license::Status, String> {
 }
 
 #[tauri::command]
+pub fn get_desktop_environment() -> String {
+    #[cfg(target_os = "windows")]
+    return "win".to_string();
+
+    #[cfg(target_os = "macos")]
+    return "mac".to_string();
+
+    #[cfg(target_os = "linux")]
+    {
+        let de = std::env::var("XDG_CURRENT_DESKTOP")
+            .unwrap_or_default()
+            .to_lowercase();
+        if de.contains("kde") || de.contains("plasma") {
+            "kde".to_string()
+        } else if de.contains("gnome") {
+            "gnome".to_string()
+        } else {
+            "linux".to_string()
+        }
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    "linux".to_string()
+}
+
+#[tauri::command]
 pub async fn license_remove() -> Result<license::Status, String> {
     blocking(license::remove).await
+}
+
+// -------------------------------------------------------------------- printing
+
+#[tauri::command]
+pub fn print_pdf<R: Runtime>(
+    app: AppHandle<R>,
+    window: tauri::WebviewWindow<R>,
+    request: ipc::Request<'_>,
+) -> Result<(), String> {
+    let title = header(&request, "x-doc-title").unwrap_or_else(|_| "Document".to_string());
+    let raw_bytes = raw_body(&request)?;
+    print_pdf_native(&app, &window, raw_bytes, &title)
+}
+
+#[cfg(target_os = "macos")]
+fn print_pdf_native<R: Runtime>(
+    _app: &AppHandle<R>,
+    window: &tauri::WebviewWindow<R>,
+    pdf_bytes: &[u8],
+    _title: &str,
+) -> Result<(), String> {
+    use std::ffi::c_void;
+    use objc2::runtime::{AnyClass, AnyObject};
+    use objc2::{class, msg_send};
+    use objc2_foundation::NSString;
+
+    let temp_dir = std::env::temp_dir();
+    let temp_file = temp_dir.join(format!(
+        "vrushpdf_print_{}_{}.pdf",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    ));
+    fs::write(&temp_file, pdf_bytes).map_err(|e| format!("could not write temp print file: {e}"))?;
+
+    let path_str = temp_file.to_string_lossy();
+    let ns_path = NSString::from_str(&path_str);
+
+    unsafe {
+        extern "C" {
+            fn dlopen(filename: *const std::ffi::c_char, flag: std::ffi::c_int) -> *mut c_void;
+        }
+        let pdfkit_path = std::ffi::CString::new("/System/Library/Frameworks/PDFKit.framework/PDFKit").unwrap();
+        dlopen(pdfkit_path.as_ptr(), 1 /* RTLD_LAZY */);
+
+        let url: *mut AnyObject = msg_send![class!(NSURL), fileURLWithPath: &*ns_path];
+        if url.is_null() {
+            let _ = fs::remove_file(&temp_file);
+            return Err("could not create file URL for printing".into());
+        }
+
+        let doc_class = AnyClass::get(c"PDFDocument").ok_or_else(|| {
+            let _ = fs::remove_file(&temp_file);
+            "PDFKit PDFDocument class not available".to_string()
+        })?;
+
+        let doc: *mut AnyObject = msg_send![doc_class, alloc];
+        let doc: *mut AnyObject = msg_send![doc, initWithURL: url];
+        if doc.is_null() {
+            let _ = fs::remove_file(&temp_file);
+            return Err("failed to load PDFDocument for printing".into());
+        }
+
+        let print_info: *mut AnyObject = msg_send![class!(NSPrintInfo), sharedPrintInfo];
+        if !print_info.is_null() {
+            let _: () = msg_send![print_info, setHorizontallyCentered: true];
+            let _: () = msg_send![print_info, setVerticallyCentered: true];
+        }
+
+        let op: *mut AnyObject = msg_send![
+            doc,
+            printOperationForPrintInfo: print_info,
+            scalingMode: 0isize,
+            autoRotate: true
+        ];
+
+        if op.is_null() {
+            let _ = fs::remove_file(&temp_file);
+            return Err("could not create NSPrintOperation".into());
+        }
+
+        let _: () = msg_send![op, setShowsPrintPanel: true];
+        let _: () = msg_send![op, setShowsProgressPanel: true];
+
+        if let Ok(ns_window) = window.ns_window() {
+            let _: () = msg_send![
+                op,
+                runOperationModalForWindow: ns_window as *mut c_void,
+                delegate: std::ptr::null_mut::<AnyObject>(),
+                didRunSelector: std::ptr::null_mut::<c_void>(),
+                contextInfo: std::ptr::null_mut::<c_void>()
+            ];
+        } else {
+            let _: bool = msg_send![op, runOperation];
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn print_pdf_native<R: Runtime>(
+    _app: &AppHandle<R>,
+    _window: &tauri::WebviewWindow<R>,
+    pdf_bytes: &[u8],
+    _title: &str,
+) -> Result<(), String> {
+    let temp_dir = std::env::temp_dir();
+    let temp_file = temp_dir.join(format!(
+        "vrushpdf_print_{}.pdf",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    ));
+    fs::write(&temp_file, pdf_bytes).map_err(|e| format!("could not write temp print file: {e}"))?;
+
+    let cmd_str = format!(
+        "Start-Process -FilePath '{}' -Verb Print",
+        temp_file.to_string_lossy().replace('\'', "''")
+    );
+    let status = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &cmd_str])
+        .status()
+        .map_err(|e| format!("failed to start print process: {e}"))?;
+
+    if !status.success() {
+        return Err(format!("print process exited with status: {status}"));
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn print_pdf_native<R: Runtime>(
+    _app: &AppHandle<R>,
+    _window: &tauri::WebviewWindow<R>,
+    pdf_bytes: &[u8],
+    _title: &str,
+) -> Result<(), String> {
+    let temp_dir = std::env::temp_dir();
+    let temp_file = temp_dir.join(format!(
+        "vrushpdf_print_{}.pdf",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    ));
+    fs::write(&temp_file, pdf_bytes).map_err(|e| format!("could not write temp print file: {e}"))?;
+
+    let result = std::process::Command::new("gtklp")
+        .arg(&temp_file)
+        .status()
+        .or_else(|_| std::process::Command::new("lpr").arg(&temp_file).status())
+        .or_else(|_| std::process::Command::new("lp").arg(&temp_file).status());
+
+    match result {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => Err(format!("print command failed with status: {status}")),
+        Err(err) => Err(format!("no print utility (gtklp/lpr/lp) found: {err}")),
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+fn print_pdf_native<R: Runtime>(
+    _app: &AppHandle<R>,
+    _window: &tauri::WebviewWindow<R>,
+    _pdf_bytes: &[u8],
+    _title: &str,
+) -> Result<(), String> {
+    Err("Printing is not supported on this platform".to_string())
 }
