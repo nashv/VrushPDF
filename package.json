@@ -15,6 +15,7 @@
     "tauri": "tauri",
     "verify:ui": "tsx scripts/verify-ui.ts",
     "fixture:pdf": "tsx scripts/fixtures/make-test-pdf.ts",
+    "screenshots": "tsx scripts/generate-screenshots.ts",
     "keygen": "cargo run -q --manifest-path keygen/Cargo.toml --",
     "keygen:check": "cargo run -q --manifest-path keygen/Cargo.toml -- check"
   },
