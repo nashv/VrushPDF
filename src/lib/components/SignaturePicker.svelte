@@ -1,20 +1,23 @@
 <script lang="ts">
-  /** Dropdown for choosing an image stamp to place. */
+  /** Dropdown for choosing a saved signature or drawing a new one. */
   import { images } from "$lib/state/images.svelte";
   import { session } from "$lib/state/session.svelte";
   import { viewer } from "$lib/state/viewer.svelte";
   import Icon from "./Icon.svelte";
 
-  let { onClose }: { onClose: () => void } = $props();
+  let { onClose, onDraw }: { onClose: () => void; onDraw: () => void } = $props();
 
-  const standard = $derived(images.standard);
-  /** Excludes the built-ins, which have their own section. */
-  const others = $derived(images.uploaded);
+  const signatures = $derived(images.signatures);
 
   function arm(id: string) {
-    viewer.setTool("stamp");
+    viewer.setTool("signature");
     viewer.pendingStamp = id;
     onClose();
+  }
+
+  async function remove(id: string) {
+    if (viewer.pendingStamp === id) viewer.pendingStamp = null;
+    await images.deleteSignature(id).catch(() => session.notify("Could not delete that signature.", "error"));
   }
 
   /** Close on outside click or Escape, like any other menu. */
@@ -36,43 +39,34 @@
   }
 </script>
 
-<div class="menu" {@attach dismissable} role="menu" aria-label="Stamps">
-  {#if standard.length > 0}
-    <div class="head">Standard</div>
+<div class="menu" {@attach dismissable} role="menu" aria-label="Signatures">
+  <div class="head">Signatures</div>
+
+  {#if signatures.length === 0}
+    <p class="empty">No saved signatures yet.</p>
+  {:else}
     <ul>
-      {#each standard as item (item.id)}
+      {#each signatures as item (item.id)}
         <li>
           <button class="entry" onclick={() => arm(item.id)} title="Place {item.name}">
             <img src={item.url} alt={item.name} />
             <span class="entry-name">{item.name}</span>
+          </button>
+          <button
+            class="btn square danger"
+            title="Delete signature"
+            aria-label="Delete {item.name}"
+            onclick={() => remove(item.id)}
+          >
+            <Icon name="trash" size={14} />
           </button>
         </li>
       {/each}
     </ul>
   {/if}
 
-  {#if others.length > 0}
-    <div class="head">Images</div>
-    <ul>
-      {#each others as item (item.id)}
-        <li>
-          <button class="entry" onclick={() => arm(item.id)} title="Place {item.name}">
-            <img src={item.url} alt={item.name} />
-            <span class="entry-name">{item.name}</span>
-          </button>
-        </li>
-      {/each}
-    </ul>
-  {/if}
-
-  <button
-    class="action"
-    onclick={() => {
-      onClose();
-      session.addImageStamp();
-    }}
-  >
-    <Icon name="stamp" /> Add an image…
+  <button class="action" onclick={onDraw}>
+    <Icon name="signature" /> Draw a new signature…
   </button>
 </div>
 
@@ -100,6 +94,12 @@
     letter-spacing: 0.02em;
     text-transform: uppercase;
     color: var(--text-faint);
+  }
+
+  .empty {
+    margin: 0;
+    padding: 2px 8px 8px;
+    color: var(--text-muted);
   }
 
   ul {

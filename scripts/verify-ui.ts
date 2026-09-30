@@ -1285,7 +1285,7 @@ async function main() {
 
     await waitForDocument(cdp);
 
-    await cdp.eval("document.querySelector('[title^=\"Stamps and signatures\"]').click()");
+    await cdp.eval("document.querySelector('[title=\"Stamps\"]').click()");
     await sleep(300);
 
     /*
@@ -1335,11 +1335,11 @@ async function main() {
     })()`);
     await sleep(300);
 
-    const armed = await cdp.eval<string>(
-      "document.querySelector('[title^=\"Stamps and signatures\"]').textContent.trim()",
+    const isStampSelected = await cdp.eval<boolean>(
+      "document.querySelector('[title=\"Stamps\"]').classList.contains('selected')",
     );
     check("choosing a stamp arms the tool", () =>
-      assert.ok(armed.includes("APPROVED"), `toolbar button reads "${armed}"`),
+      assert.ok(isStampSelected, "stamp toolbar button is selected"),
     );
 
     const stampBand = await cdp.eval<{ x: number; w: number; top: number; bottom: number }>(`(() => {
@@ -1396,7 +1396,7 @@ async function main() {
 
     await waitForDocument(cdp);
 
-    await cdp.eval("document.querySelector('[title^=\"Stamps and signatures\"]').click()");
+    await cdp.eval("document.querySelector('[title=\"Stamps\"]').click()");
     await sleep(250);
     await cdp.eval(`(() => {
       const add = [...document.querySelectorAll('.menu .action')].find((el) =>
@@ -1405,7 +1405,7 @@ async function main() {
       add.click();
     })()`);
     await sleep(800);
-    await cdp.eval("document.querySelector('[title^=\"Stamps and signatures\"]').click()");
+    await cdp.eval("document.querySelector('[title=\"Stamps\"]').click()");
     const withImage = await waitFor(
       "the added image to appear in the menu",
       () =>
@@ -1420,7 +1420,7 @@ async function main() {
     );
 
     // Close it again, so later sections start from a known state.
-    await cdp.eval("document.querySelector('[title^=\"Stamps and signatures\"]').click()");
+    await cdp.eval("document.querySelector('[title=\"Stamps\"]').click()");
     await sleep(200);
 
     // ------------------------------------------------------------- chrome
@@ -1567,11 +1567,11 @@ async function main() {
      */
     // Open from a known state rather than toggling whatever it happens to be.
     await cdp.eval(`(() => {
-      const btn = document.querySelector('[title^="Stamps and signatures"]');
+      const btn = document.querySelector('[title="Stamps"]');
       if (document.querySelector('.menu')) btn.click();
     })()`);
     await sleep(200);
-    await cdp.eval("document.querySelector('[title^=\"Stamps and signatures\"]').click()");
+    await cdp.eval("document.querySelector('[title=\"Stamps\"]').click()");
     await sleep(300);
     const narrowMenu = await cdp.eval<boolean>(`(() => {
       const menu = document.querySelector('.menu');

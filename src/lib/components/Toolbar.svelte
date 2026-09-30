@@ -9,6 +9,7 @@
   import { hasGlass } from "$lib/platform";
   import Icon, { type IconName } from "./Icon.svelte";
   import StampPicker from "./StampPicker.svelte";
+  import SignaturePicker from "./SignaturePicker.svelte";
 
   let {
     tab,
@@ -79,6 +80,7 @@
   const currentPage = $derived(tab?.view.currentPage ?? 0);
 
   let stampOpen = $state(false);
+  let signatureOpen = $state(false);
 
   /** The trial capsule's text; null once licensed. */
   const trialLabel = $derived.by(() => {
@@ -130,13 +132,17 @@
     <div class="divider"></div>
 
     <div class="cluster glass">
-      <button class="btn" title="Open… (⌘O)" onclick={() => session.openViaDialog()}>
+      <button class="btn square" title="Open… (⌘O)" onclick={() => session.openViaDialog()}>
         <Icon name="open" />
-        <span class="btn-label always">Open</span>
+        <span class="btn-label">Open</span>
       </button>
-      <button class="btn" title="Save (⌘S)" disabled={!open} onclick={() => session.save()}>
+      <button class="btn square" title="Merge PDFs…" onclick={() => session.openMergeDialog()}>
+        <Icon name="merge" />
+        <span class="btn-label">Merge</span>
+      </button>
+      <button class="btn square" title="Save (⌘S)" disabled={!open} onclick={() => session.save()}>
         <Icon name="save" />
-        <span class="btn-label always">Save</span>
+        <span class="btn-label">Save</span>
       </button>
       <button class="btn square" title="Save As… (⇧⌘S)" disabled={!open} onclick={() => session.saveAs()}>
         <Icon name="save-as" />
@@ -309,31 +315,50 @@
     -->
     <div class="divider"></div>
 
-    <div class="stamp-wrap glass">
-      <button
-        class="btn"
-        class:selected={viewer.tool === "stamp" || viewer.tool === "signature"}
-        title="Stamps and signatures (S)"
-        disabled={!open || !license.canEdit}
-        onclick={() => (stampOpen = !stampOpen)}
-      >
-        <Icon name="signature" />
-        {#if viewer.pendingStamp}
-          {images.get(viewer.pendingStamp)?.name ?? "Stamp"}
-        {:else}
-          Stamp
-        {/if}
-        <Icon name="chevron-down" size={12} />
-      </button>
-      {#if stampOpen}
-        <StampPicker
-          onClose={() => (stampOpen = false)}
-          onDraw={() => {
-            stampOpen = false;
-            onDrawSignature();
+    <div class="cluster glass">
+      <div class="popover-wrap">
+        <button
+          class="btn square"
+          class:selected={viewer.tool === "stamp"}
+          title="Stamps"
+          disabled={!open || !license.canEdit}
+          onclick={() => {
+            stampOpen = !stampOpen;
+            if (stampOpen) signatureOpen = false;
           }}
-        />
-      {/if}
+        >
+          <Icon name="stamp" />
+          <span class="btn-label">Stamp</span>
+        </button>
+        {#if stampOpen}
+          <StampPicker onClose={() => (stampOpen = false)} />
+        {/if}
+      </div>
+
+      <div class="popover-wrap">
+        <button
+          class="btn square"
+          class:selected={viewer.tool === "signature"}
+          title="Signatures (S)"
+          disabled={!open || !license.canEdit}
+          onclick={() => {
+            signatureOpen = !signatureOpen;
+            if (signatureOpen) stampOpen = false;
+          }}
+        >
+          <Icon name="signature" />
+          <span class="btn-label">Signature</span>
+        </button>
+        {#if signatureOpen}
+          <SignaturePicker
+            onClose={() => (signatureOpen = false)}
+            onDraw={() => {
+              signatureOpen = false;
+              onDrawSignature();
+            }}
+          />
+        {/if}
+      </div>
     </div>
 
     <span class="spacer" data-tauri-drag-region={drag}></span>
@@ -465,20 +490,13 @@
 
   /*
    * Icon-and-text mode, as in a native macOS toolbar: the label goes under the
-   * icon, buttons size to their text, and the rows grow to fit. Open and Save
-   * keep their label at all times, so theirs is marked `.always`.
+   * icon, buttons size to their text, and the rows grow to fit.
    */
   .btn-label {
     display: none;
     font-size: 10px;
     line-height: 1;
     color: var(--text-muted);
-  }
-
-  .btn-label.always {
-    display: inline;
-    font-size: inherit;
-    color: inherit;
   }
 
   .toolbar.labels .row {
@@ -507,11 +525,6 @@
 
   .toolbar.labels .btn-label {
     display: block;
-  }
-
-  .toolbar.labels .btn-label.always {
-    font-size: 10px;
-    color: var(--text-muted);
   }
 
   /* The style controls are not action buttons; leave their swatches alone. */
@@ -600,8 +613,10 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .stamp-wrap {
+  .popover-wrap {
     position: relative;
+    display: flex;
+    align-items: center;
     flex: none;
   }
 
@@ -712,8 +727,7 @@
     display: none;
   }
 
-  :global([data-glass]) .cluster,
-  :global([data-glass]) .stamp-wrap {
+  :global([data-glass]) .cluster {
     display: flex;
     align-items: center;
     flex: none;
@@ -761,8 +775,7 @@
   }
 
   /* Labelled buttons are too tall for a capsule to stay a capsule. */
-  :global([data-glass]) .toolbar.labels .cluster,
-  :global([data-glass]) .toolbar.labels .stamp-wrap {
+  :global([data-glass]) .toolbar.labels .cluster {
     border-radius: 16px;
   }
 

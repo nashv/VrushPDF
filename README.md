@@ -149,8 +149,8 @@ Tauri cannot cross-compile, so each installer is built on its own OS by
 `.github/workflows/release.yml`. To cut a release:
 
 ```sh
-npm version 0.5.0 --no-git-tag-version   # tauri.conf.json reads this
-git commit -am "Release 0.5.0" && git tag v0.5.0 && git push --follow-tags
+npm version 0.5.1 --no-git-tag-version   # tauri.conf.json reads this
+git commit -am "Release 0.5.1" && git tag v0.5.1 && git push --follow-tags
 ```
 
 The workflow then builds on four runners and opens a **draft** GitHub Release in the public **VrushPDF** repository
