@@ -1,6 +1,6 @@
 {
   "name": "vrushpdf",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "",
   "type": "module",
   "scripts": {
@@ -15,7 +15,8 @@
     "tauri": "tauri",
     "verify:ui": "tsx scripts/verify-ui.ts",
     "fixture:pdf": "tsx scripts/fixtures/make-test-pdf.ts",
-    "keygen": "cargo run -q --manifest-path keygen/Cargo.toml --"
+    "keygen": "cargo run -q --manifest-path keygen/Cargo.toml --",
+    "keygen:check": "cargo run -q --manifest-path keygen/Cargo.toml -- check"
   },
   "license": "UNLICENSED",
   "private": true,

@@ -269,4 +269,97 @@
   :global([data-glass]) .add {
     width: 30px;
   }
+
+  /* ----------------------------------------------- Windows (Fluent Design) */
+  :global([data-platform="win"]) .tabbar {
+    background: var(--bg-sunken);
+    border-bottom: 1px solid var(--border);
+    padding-top: 2px;
+  }
+
+  :global([data-platform="win"]) .tab {
+    border-radius: 4px 4px 0 0;
+    margin-right: 2px;
+    border-right: none;
+  }
+
+  :global([data-platform="win"]) .tab.active {
+    background: var(--bg-raised);
+    box-shadow: inset 0 -2px 0 var(--accent);
+    color: var(--text);
+  }
+
+  /* --------------------------------- Linux / GNOME (Adwaita / Libadwaita) */
+  :global([data-platform="gnome"]) .tabbar,
+  :global([data-platform="linux"]) .tabbar {
+    background: var(--bg-sunken);
+    padding: 4px 8px;
+    gap: 6px;
+    height: 38px;
+  }
+
+  :global([data-platform="gnome"]) .strip,
+  :global([data-platform="linux"]) .strip {
+    gap: 4px;
+  }
+
+  :global([data-platform="gnome"]) .tab,
+  :global([data-platform="linux"]) .tab {
+    border: none;
+    border-radius: 6px;
+    padding: 0 4px;
+  }
+
+  :global([data-platform="gnome"]) .tab.active,
+  :global([data-platform="linux"]) .tab.active {
+    background: var(--bg-raised);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+    color: var(--text);
+  }
+
+  :global([data-platform="gnome"]) .close,
+  :global([data-platform="linux"]) .close {
+    border-radius: 999px;
+  }
+
+  :global([data-platform="gnome"]) .add,
+  :global([data-platform="linux"]) .add {
+    border-radius: 6px;
+  }
+
+  /* ------------------------------------- Linux / KDE Plasma (Breeze) */
+  :global([data-platform="kde"]) .tabbar {
+    background: var(--bg-sunken);
+    border-bottom: 1px solid var(--border);
+    padding-top: 3px;
+  }
+
+  :global([data-platform="kde"]) .tab {
+    border-radius: 3px 3px 0 0;
+    border: 1px solid var(--border);
+    border-bottom: none;
+    margin-right: -1px;
+    background: var(--bg);
+  }
+
+  :global([data-platform="kde"]) .tab:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent);
+  }
+
+  :global([data-platform="kde"]) .tab.active {
+    background: var(--bg-raised);
+    border-color: var(--border);
+    border-top: 2px solid var(--accent);
+    color: var(--text);
+    z-index: 1;
+  }
+
+  :global([data-platform="kde"]) .close {
+    border-radius: 2px;
+  }
+
+  :global([data-platform="kde"]) .add {
+    border-radius: 3px;
+  }
 </style>

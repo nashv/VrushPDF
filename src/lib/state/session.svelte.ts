@@ -13,6 +13,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import { DEFAULT_PAGE_SIZE } from "$lib/annotations/blank";
 import { importAnnots } from "$lib/annotations/import";
+import { optimizePdf, type OptimizeOptions } from "$lib/annotations/optimize";
 import { buildSavedPdf, type SourceBytes } from "$lib/annotations/save";
 import { isStamp, type Annot, type PageEntry } from "$lib/annotations/types";
 import type { ImageSource } from "$lib/annotations/write";
@@ -76,6 +77,8 @@ class Session {
 
   /** True while the merge dialog is up. */
   mergeOpen = $state(false);
+  /** True while the optimize dialog is up. */
+  optimizeOpen = $state(false);
   /** True while the settings dialog is up. */
   settingsOpen = $state(false);
 
@@ -447,6 +450,67 @@ class Session {
 
   closeMergeDialog() {
     this.mergeOpen = false;
+  }
+
+  openOptimizeDialog() {
+    if (!license.allow("Optimizing PDFs")) return;
+    this.optimizeOpen = true;
+  }
+
+  closeOptimizeDialog() {
+    this.optimizeOpen = false;
+  }
+
+  async optimize(options: OptimizeOptions, targetPath?: string): Promise<boolean> {
+    const tab = workspace.active;
+    if (!tab?.isOpen) return false;
+    if (!license.allow("Optimizing PDFs")) return false;
+
+    let destination = targetPath;
+    if (!destination) {
+      let defaultName = tab.doc.name || "Untitled.pdf";
+      const base = defaultName.replace(/\.pdf$/i, "");
+      defaultName = `${base}_optimized.pdf`;
+      const chosen = await pickSaveTarget(defaultName);
+      if (!chosen) return false;
+      destination = chosen;
+    }
+
+    const done = await this.#withBusy("Optimizing PDF…", async () => {
+      const source = tab.doc.source(MAIN_DOC);
+      if (!source) throw new Error("no document open");
+
+      const intermediate = await buildSavedPdf({
+        pages: $state.snapshot(tab.edits.pages),
+        annots: $state.snapshot(tab.edits.annots),
+        mainDocId: MAIN_DOC,
+        getSource: this.#sourceBytes(tab),
+        resolveImage: this.#resolveImage,
+        fields: $state.snapshot(tab.edits.fields),
+      });
+
+      const optResult = await optimizePdf({
+        docBytes: intermediate.bytes,
+        options,
+        pages: $state.snapshot(tab.edits.pages),
+        annots: $state.snapshot(tab.edits.annots),
+        fields: $state.snapshot(tab.edits.fields),
+        resolveImage: this.#resolveImage,
+      });
+
+      await writeFile(destination!, optResult.bytes, tab.doc.password);
+      await this.#reopenAfterSave(tab, destination!);
+
+      const origMb = (optResult.originalSize / (1024 * 1024)).toFixed(2);
+      const optMb = (optResult.optimizedSize / (1024 * 1024)).toFixed(2);
+
+      this.notify(
+        `Optimized: Reduced from ${origMb}MB to ${optMb}MB (${optResult.savedPercentage}% saved).`,
+      );
+      return true;
+    });
+
+    return done === true;
   }
 
   openSettings() {

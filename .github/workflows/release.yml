@@ -128,7 +128,9 @@ jobs:
       # The license key and trial checks. Needs no built frontend: without the
       # custom-protocol feature Tauri points at devUrl instead of embedding it.
       - name: Rust unit tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --lib
+          cargo test --manifest-path keygen/Cargo.toml
 
       # Builds only. Deliberately no release inputs: with four jobs in
       # parallel each would try to create the release, and a *draft* cannot be

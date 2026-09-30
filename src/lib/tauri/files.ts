@@ -51,6 +51,41 @@ export async function printPdf(bytes: Uint8Array, docTitle = "Document"): Promis
   });
 }
 
+export interface OptimizeImageRequest {
+  bytes: number[] | Uint8Array;
+  target_width?: number;
+  target_height?: number;
+  quality?: number;
+  format?: string;
+  color_space?: string;
+  original_width?: number;
+  original_height?: number;
+}
+
+export interface OptimizeImageResponse {
+  bytes: number[];
+  width: number;
+  height: number;
+  format: string;
+  original_size: number;
+  optimized_size: number;
+}
+
+export async function optimizeImage(req: OptimizeImageRequest): Promise<Uint8Array | null> {
+  try {
+    const bytesArr = req.bytes instanceof Uint8Array ? Array.from(req.bytes) : req.bytes;
+    const res = await invoke<OptimizeImageResponse>("optimize_image", {
+      req: {
+        ...req,
+        bytes: bytesArr,
+      },
+    });
+    return new Uint8Array(res.bytes);
+  } catch (err) {
+    return null;
+  }
+}
+
 export const fileMeta = (path: string) => invoke<FileMeta>("file_meta", { path });
 
 // ------------------------------------------------------------------ recents

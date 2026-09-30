@@ -7,6 +7,7 @@
   import Inspector from "$lib/components/Inspector.svelte";
   import LicenseDialog from "$lib/components/LicenseDialog.svelte";
   import MergeDialog from "$lib/components/MergeDialog.svelte";
+  import OptimizeDialog from "$lib/components/OptimizeDialog.svelte";
   import PasswordDialog from "$lib/components/PasswordDialog.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
   import SignatureWarningDialog from "$lib/components/SignatureWarningDialog.svelte";
@@ -162,6 +163,10 @@
 
 {#if session.mergeOpen}
   <MergeDialog />
+{/if}
+
+{#if session.optimizeOpen}
+  <OptimizeDialog />
 {/if}
 
 {#if session.settingsOpen}

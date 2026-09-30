@@ -23,6 +23,12 @@ comments; image stamps; built-in APPROVED / REVIEWED / DRAFT / CONFIDENTIAL /
 FINAL stamps; and reusable drawn signatures. Each has colour, opacity,
 stroke width and comment controls, with snapshot undo/redo across everything.
 
+**Printing** — native cross-platform printing (`⌘P` / `Ctrl+P`) rendering the document with all annotations, form fields, page rotations, and reorderings at high resolution directly through native OS print dialogs (AppKit/PDFKit on macOS, ShellExecute on Windows, GTKLP/CUPS on Linux).
+
+**Flattening & Security** — save documents in standard editable format (`⌘S`) or export flattened copies (`⌥⌘S` / `Alt+Shift+S`) that burn annotations, signatures, and form fields directly into base page content streams to prevent extraction or tampering. When saving a signed document unflattened, an optional safety prompt warns before saving, configurable in Settings. Password-protected documents maintain their encryption context and are securely re-encrypted with standard AES-128 upon saving.
+
+**Optimization & Compression** — Adobe Acrobat–style PDF Optimizer (`⌥⌘O` / `Alt+Ctrl+O`) with customizable presets (Standard, Mobile/Web, Print, Clean & Compact, Custom). Features native bicubic image downsampling (72–300 DPI) and JPEG re-compression, object & annotation flattening, embedded thumbnail/metadata/structure tree pruning, standard 14 font stream unembedding, and PDF 1.5+ Object Stream (`/ObjStm`) dictionary compaction for maximal reduction in file size.
+
 **Forms** — fill in text fields, checkboxes, radio buttons, dropdowns and list
 boxes with the Select tool. What you type goes into the PDF's real form fields
 on save, with regenerated appearances, so Preview, Acrobat and Chrome show it
@@ -56,7 +62,7 @@ Dropping several PDFs at once opens each in its own tab.
 ### Shortcuts worth knowing
 
 `⌘T` new tab · `⌘W` close tab (prompts if unsaved) · `⌘1`–`⌘9` jump to a tab ·
-`⌃Tab` / `⌘⇧[` `⌘⇧]` cycle tabs · `⌘O` open · `⌘S` / `⇧⌘S` save · `⌥⌘S` save flattened · `⌘P` print · `⌘Z` / `⇧⌘Z`
+`⌃Tab` / `⌘⇧[` `⌘⇧]` cycle tabs · `⌘O` open · `⌘S` / `⇧⌘S` save · `⌥⌘S` save flattened · `⌥⌘O` optimize · `⌘P` print · `⌘Z` / `⇧⌘Z`
 undo · `⌘F` find · `⌘0` fit page · `⌥⌘0` actual size · `⌘\` toggle sidebar ·
 `⌥⌘←` `⌥⌘→` page back/forward · `Home` / `End` first/last page · `⌥⌘↑` `⌥⌘↓`
 move the selected page · `⇧⌘−` `⇧⌘=` rotate.
@@ -96,21 +102,17 @@ npm run fixture:pdf        # writes report.pdf, appendix.pdf and form.pdf to /tm
 
 ### Platform fit
 
-`app.css` carries one token set per desktop: macOS keeps 13px text, 6px corners
-and 28px controls; Windows switches to Segoe UI Variable at 14px with Fluent's
-tighter 4px corners and taller controls; Linux to `system-ui`/Cantarell. An
-inline script in `app.html` tags `<html data-platform>` before the first paint,
-so nothing flashes the wrong metrics. Where the engine supports the `AccentColor`
-system colour the UI follows the accent chosen in system settings, falling back
-to the built-in blue otherwise.
+`app.css` carries tailored token sets per desktop environment:
+- **macOS**: LiquidGlass styling with 13px typography, 6px corners, and 28px controls.
+- **Windows**: Fluent Design System 2 with Segoe UI Variable at 14px, 4px corners, and 32px controls.
+- **GNOME (Adwaita)**: Cantarell typography, rounded 6px/12px corners, and 34px controls with Adwaita neutral surface palettes.
+- **KDE Plasma (Breeze)**: Noto Sans at 13.5px, sharp 3px corners, and 30px compact controls with high-contrast borders.
+
+The backend resolves `XDG_CURRENT_DESKTOP` to distinguish GNOME and KDE on Linux, while an inline script in `app.html` tags `<html data-platform>` before first paint to prevent metric flashes. Where the engine supports `AccentColor`, the UI automatically inherits the system accent color configured in OS settings.
 
 Below 900px the sidebar and properties panel overlay the page instead of
 squeezing it, the resize handles disappear, and the top toolbar row scrolls. The
 window minimum is 640×480.
-
-> The Windows and Linux token sets are covered by the UI suite, which forces
-> each `data-platform` value, but they have not been run on real Windows or
-> Linux hardware.
 
 ### Settings
 
@@ -134,6 +136,7 @@ This keeps honest people honest. It does not survive someone patching the binary
 npm run keygen -- init                       # once: signing key + license_key.pub
 npm run -s keygen -- issue buyer@example.com # prints the key; email it to them
 npm run -s keygen -- show <key>              # who a key is for, and its id
+npm run -s keygen -- check                   # diagnostic: verify signing key and public key sync
 ```
 
 `init` writes the private key to `~/.vrushpdf-signing-key`; set `VRUSHPDF_SIGNING_KEY` to use a different path. It never goes in the repo. Back it up: without it you can't issue keys that already-released builds accept. Running `init --force` makes a new pair, and every key issued before that stops working. `issue` refuses to run if the signing key doesn't match the committed `license_key.pub`.
@@ -146,8 +149,8 @@ Tauri cannot cross-compile, so each installer is built on its own OS by
 `.github/workflows/release.yml`. To cut a release:
 
 ```sh
-npm version 0.4.0 --no-git-tag-version   # tauri.conf.json reads this
-git commit -am "Release 0.4.0" && git tag v0.4.0 && git push --follow-tags
+npm version 0.5.0 --no-git-tag-version   # tauri.conf.json reads this
+git commit -am "Release 0.5.0" && git tag v0.5.0 && git push --follow-tags
 ```
 
 The workflow then builds on four runners and opens a **draft** GitHub Release in the public **VrushPDF** repository
@@ -263,16 +266,18 @@ drawing straight from the file whatever we don't.
 ## Layout
 
 ```
-src/lib/pdf/           pdf.js setup, rendering, text layer, search
+src/lib/pdf/           pdf.js setup, rendering, text layer, search, printing
 src/lib/annotations/   model, hit-testing, appearance streams, blank pages,
-                       import/write/save
+                       import/write/save, outline remapping, optimizer (optimize.ts)
 src/lib/state/         workspace (tabs), doc, edits (undoable), viewer,
-                       images, recents, search, session
+                       images, recents, search, session, settings
 src/lib/menu/          the native menu bar and its state sync
 src/lib/reorder.svelte.ts  pointer-based drag-to-reorder
 src/lib/stamps.ts      the built-in stamps, drawn to PNG at startup
-src/lib/components/    toolbar, sidebar, viewer, page, overlay, inspector
-src-tauri/src/         filesystem, recents and signature-store commands,
+src/lib/components/    toolbar, sidebar, viewer, page, overlay, inspector, dialogs
+                       (OptimizeDialog.svelte)
+src-tauri/src/         filesystem, recents, signature-store commands, native printing,
+                       image downsampling (optimize.rs), AES-128 re-encryption (encrypt.rs),
                        licensing (license.rs), macOS glass backdrop (glass.rs)
 keygen/                issues license keys locally (shares license_key.rs)
 scripts/               asset copy + the two verification suites

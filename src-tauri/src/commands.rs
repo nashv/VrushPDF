@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{ipc, AppHandle, Manager, Runtime};
 
 use crate::license;
+use crate::optimize::{self, OptimizeImageRequest, OptimizeImageResponse};
 
 const RECENTS_FILE: &str = "recents.json";
 const SIGNATURES_DIR: &str = "signatures";
@@ -375,11 +376,12 @@ pub fn get_desktop_environment() -> String {
     #[cfg(target_os = "linux")]
     {
         let de = std::env::var("XDG_CURRENT_DESKTOP")
+            .or_else(|_| std::env::var("DESKTOP_SESSION"))
             .unwrap_or_default()
             .to_lowercase();
-        if de.contains("kde") || de.contains("plasma") {
+        if de.contains("kde") || de.contains("plasma") || de.contains("lxqt") {
             "kde".to_string()
-        } else if de.contains("gnome") {
+        } else if de.contains("gnome") || de.contains("unity") || de.contains("pantheon") || de.contains("cinnamon") || de.contains("mate") || de.contains("budgie") {
             "gnome".to_string()
         } else {
             "linux".to_string()
@@ -566,4 +568,9 @@ fn print_pdf_native<R: Runtime>(
     _title: &str,
 ) -> Result<(), String> {
     Err("Printing is not supported on this platform".to_string())
+}
+
+#[tauri::command]
+pub fn optimize_image(req: OptimizeImageRequest) -> Result<OptimizeImageResponse, String> {
+    optimize::optimize_image_buffer(req)
 }

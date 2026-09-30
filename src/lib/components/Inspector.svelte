@@ -467,6 +467,71 @@
     color: var(--accent-text);
   }
 
+  :global([data-glass]) .segmented {
+    border-radius: 999px;
+    background: var(--glass-track);
+    border: none;
+    padding: 2px;
+    gap: 2px;
+  }
+
+  :global([data-glass]) .seg {
+    border-radius: 999px;
+  }
+
+  :global([data-glass]) .seg + .seg {
+    border-left: none;
+  }
+
+  :global([data-glass]) .seg.on {
+    background: var(--glass-fill);
+    box-shadow: var(--glass-edge);
+    color: var(--text);
+  }
+
+  :global([data-platform="gnome"]) .segmented,
+  :global([data-platform="linux"]) .segmented {
+    border-radius: 6px;
+    background: var(--bg-sunken);
+    border: none;
+    padding: 2px;
+    gap: 2px;
+  }
+
+  :global([data-platform="gnome"]) .seg,
+  :global([data-platform="linux"]) .seg {
+    border-radius: 5px;
+  }
+
+  :global([data-platform="gnome"]) .seg + .seg,
+  :global([data-platform="linux"]) .seg + .seg {
+    border-left: none;
+  }
+
+  :global([data-platform="gnome"]) .seg.on,
+  :global([data-platform="linux"]) .seg.on {
+    background: var(--bg-raised);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
+    color: var(--text);
+  }
+
+  :global([data-platform="win"]) .segmented {
+    border-radius: 4px;
+  }
+
+  :global([data-platform="win"]) .seg {
+    border-radius: 2px;
+  }
+
+  :global([data-platform="kde"]) .segmented {
+    border-radius: 3px;
+    border-color: var(--border);
+  }
+
+  :global([data-platform="kde"]) .seg {
+    border-radius: 2px;
+  }
+
   .stamp-preview {
     width: 100%;
     max-height: 90px;

@@ -146,6 +146,10 @@
         <Icon name="save-flattened" />
         <span class="btn-label">Flatten</span>
       </button>
+      <button class="btn square" title="Optimize PDF… (⌥⌘O)" disabled={!open} onclick={() => session.openOptimizeDialog()}>
+        <Icon name="optimize" />
+        <span class="btn-label">Optimize</span>
+      </button>
       <button class="btn square" title="Print… (⌘P)" disabled={!open} onclick={() => session.print()}>
         <Icon name="print" />
         <span class="btn-label">Print</span>
@@ -764,5 +768,103 @@
 
   :global([data-glass]) .toolbar.labels :global(.btn) {
     border-radius: 13px;
+  }
+
+  /* ----------------------------------------------- Windows (Fluent Design) */
+  :global([data-platform="win"]) .cluster {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  :global([data-platform="win"]) .page-input {
+    height: 26px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    border-bottom: 2px solid var(--border-strong);
+    background: var(--bg-raised);
+  }
+
+  :global([data-platform="win"]) .page-input:focus {
+    border-bottom-color: var(--accent);
+  }
+
+  :global([data-platform="win"]) .swatch {
+    border-radius: 3px;
+  }
+
+  :global([data-platform="win"]) .picker {
+    border-radius: 3px;
+  }
+
+  /* --------------------------------- Linux / GNOME (Adwaita / Libadwaita) */
+  :global([data-platform="gnome"]) .cluster,
+  :global([data-platform="linux"]) .cluster {
+    display: inline-flex;
+    align-items: center;
+    background: var(--bg-sunken);
+    border-radius: 6px;
+    padding: 2px;
+    gap: 1px;
+  }
+
+  :global([data-platform="gnome"]) .cluster :global(.btn),
+  :global([data-platform="linux"]) .cluster :global(.btn) {
+    border-radius: 5px;
+    height: 26px;
+  }
+
+  :global([data-platform="gnome"]) .cluster :global(.btn.selected),
+  :global([data-platform="linux"]) .cluster :global(.btn.selected) {
+    background: var(--bg-raised);
+    color: var(--accent);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
+  }
+
+  :global([data-platform="gnome"]) .divider,
+  :global([data-platform="linux"]) .divider {
+    display: none;
+  }
+
+  :global([data-platform="gnome"]) .page-input,
+  :global([data-platform="linux"]) .page-input {
+    border-radius: 6px;
+  }
+
+  :global([data-platform="gnome"]) .swatch,
+  :global([data-platform="linux"]) .swatch {
+    border-radius: 4px;
+  }
+
+  :global([data-platform="gnome"]) .picker,
+  :global([data-platform="linux"]) .picker {
+    border-radius: 4px;
+  }
+
+  /* ------------------------------------- Linux / KDE Plasma (Breeze) */
+  :global([data-platform="kde"]) .cluster {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+
+  :global([data-platform="kde"]) .page-input {
+    height: 26px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    background: var(--bg-raised);
+  }
+
+  :global([data-platform="kde"]) .page-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+
+  :global([data-platform="kde"]) .swatch {
+    border-radius: 3px;
+  }
+
+  :global([data-platform="kde"]) .picker {
+    border-radius: 3px;
   }
 </style>

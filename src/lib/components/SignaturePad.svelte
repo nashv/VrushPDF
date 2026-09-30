@@ -213,7 +213,6 @@
     inset: 0;
     z-index: 50;
     border: none;
-    background: rgb(8 10 14 / 45%);
   }
 
   .dialog {

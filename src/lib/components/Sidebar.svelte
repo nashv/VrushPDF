@@ -191,4 +191,61 @@
     background: var(--glass-fill);
     box-shadow: var(--glass-edge), var(--glass-lift);
   }
+
+  /* ----------------------------------------------- Windows (Fluent Design) */
+  :global([data-platform="win"]) .tabs {
+    background: transparent;
+    border-bottom: 1px solid var(--border);
+  }
+
+  :global([data-platform="win"]) .tab {
+    border-bottom: 2px solid transparent;
+    transition: all 0.1s ease;
+  }
+
+  :global([data-platform="win"]) .tab.active {
+    border-bottom-color: var(--accent);
+    color: var(--accent);
+  }
+
+  /* --------------------------------- Linux / GNOME (Adwaita / Libadwaita) */
+  :global([data-platform="gnome"]) .tabs,
+  :global([data-platform="linux"]) .tabs {
+    gap: 2px;
+    margin: 6px;
+    padding: 3px;
+    border-bottom: none;
+    border-radius: 8px;
+    background: var(--bg-sunken);
+  }
+
+  :global([data-platform="gnome"]) .tab,
+  :global([data-platform="linux"]) .tab {
+    padding: 5px 2px 4px;
+    border-bottom: none;
+    border-radius: 6px;
+  }
+
+  :global([data-platform="gnome"]) .tab.active,
+  :global([data-platform="linux"]) .tab.active {
+    background: var(--bg-raised);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+    color: var(--text);
+  }
+
+  /* ------------------------------------- Linux / KDE Plasma (Breeze) */
+  :global([data-platform="kde"]) .tabs {
+    background: var(--bg-sunken);
+    border-bottom: 1px solid var(--border);
+  }
+
+  :global([data-platform="kde"]) .tab {
+    border-bottom: 2px solid transparent;
+  }
+
+  :global([data-platform="kde"]) .tab.active {
+    background: var(--bg-raised);
+    border-bottom-color: var(--accent);
+    color: var(--text);
+  }
 </style>

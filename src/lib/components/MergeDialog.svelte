@@ -232,6 +232,12 @@
     overflow-y: auto;
   }
 
+  :global([data-glass]) .list {
+    background: var(--glass-track);
+    border-color: var(--glass-stroke);
+    box-shadow: inset 0 1px 2px rgb(0 0 0 / 5%);
+  }
+
   .empty {
     margin: auto;
     padding: 20px;
@@ -249,6 +255,11 @@
 
   .row:hover {
     background: var(--bg-hover);
+  }
+
+  :global([data-glass]) .row:hover {
+    background: var(--glass-fill);
+    box-shadow: var(--glass-edge);
   }
 
   .row.dragging {

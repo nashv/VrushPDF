@@ -56,7 +56,7 @@
 
 /* Windows (Fluent Design System) */
 :root[data-platform="win"] {
-  --font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-size: 14px;
   /* Fluent corners are tighter and controls taller than Aqua's. */
   --radius: 4px;
@@ -68,11 +68,20 @@
 
   --bg: #f3f3f3;
   --bg-raised: #ffffff;
-  --bg-sunken: #eaeaea;
+  --bg-sunken: #e5e5e5;
   --bg-hover: rgb(0 0 0 / 4.5%);
-  --bg-active: rgb(0 0 0 / 7.5%);
+  --bg-active: rgb(0 0 0 / 8%);
+  --text: #1b1b1b;
+  --text-muted: #616161;
+  --text-faint: #8a8a8a;
   --border: rgb(0 0 0 / 9%);
-  --border-strong: rgb(0 0 0 / 16%);
+  --border-strong: rgb(0 0 0 / 18%);
+  --accent: #0067c0;
+  --accent-text: #ffffff;
+  --accent-soft: rgb(0 103 192 / 12%);
+  --surface-float: var(--bg-raised);
+  --surface-float-border: var(--border);
+  --surface-float-filter: none;
 }
 
 /* Linux / GNOME (Adwaita / Libadwaita) */
@@ -82,25 +91,34 @@
   --font-size: 14px;
   --radius: 6px;
   --radius-lg: 12px;
-  --control-h: 30px;
+  --control-h: 32px;
   --toolbar-h: 50px;
   --font-smoothing: auto;
 
   --bg: #fafafa;
   --bg-raised: #ffffff;
-  --bg-sunken: #ebebeb;
+  --bg-sunken: #f0f0f0;
   --bg-hover: rgb(0 0 0 / 6%);
-  --bg-active: rgb(0 0 0 / 10%);
+  --bg-active: rgb(0 0 0 / 11%);
+  --text: #2e3436;
+  --text-muted: #5e5c64;
+  --text-faint: #8a8a8d;
   --border: rgb(0 0 0 / 14%);
-  --border-strong: rgb(0 0 0 / 22%);
+  --border-strong: rgb(0 0 0 / 24%);
+  --accent: #3584e4;
+  --accent-text: #ffffff;
+  --accent-soft: rgb(53 132 228 / 15%);
+  --surface-float: var(--bg-raised);
+  --surface-float-border: var(--border);
+  --surface-float-filter: none;
 }
 
 /* Linux / KDE Plasma (Breeze) */
 :root[data-platform="kde"] {
   --font-ui: "Noto Sans", system-ui, sans-serif;
   --font-size: 13.5px;
-  --radius: 4px;
-  --radius-lg: 6px;
+  --radius: 3px;
+  --radius-lg: 5px;
   --control-h: 30px;
   --toolbar-h: 46px;
   --font-smoothing: auto;
@@ -110,8 +128,17 @@
   --bg-sunken: #dcdfe3;
   --bg-hover: rgb(61 174 233 / 15%);
   --bg-active: rgb(61 174 233 / 25%);
+  --text: #232629;
+  --text-muted: #656d75;
+  --text-faint: #8f959c;
   --border: #bcc0c5;
   --border-strong: #93979b;
+  --accent: #3daee9;
+  --accent-text: #ffffff;
+  --accent-soft: rgb(61 174 233 / 18%);
+  --surface-float: var(--bg-raised);
+  --surface-float-border: var(--border-strong);
+  --surface-float-filter: none;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -147,8 +174,16 @@
     --bg-sunken: #181818;
     --bg-hover: rgb(255 255 255 / 6%);
     --bg-active: rgb(255 255 255 / 9%);
+    --text: #ffffff;
+    --text-muted: #a0a0a0;
+    --text-faint: #707070;
     --border: rgb(255 255 255 / 9%);
-    --border-strong: rgb(255 255 255 / 15%);
+    --border-strong: rgb(255 255 255 / 16%);
+    --accent: #4cc2ff;
+    --accent-text: #000000;
+    --accent-soft: rgb(76 194 255 / 16%);
+    --surface-float: var(--bg-raised);
+    --surface-float-border: var(--border);
   }
 
   :root[data-platform="linux"],
@@ -157,9 +192,17 @@
     --bg-raised: #303030;
     --bg-sunken: #1e1e1e;
     --bg-hover: rgb(255 255 255 / 8%);
-    --bg-active: rgb(255 255 255 / 12%);
+    --bg-active: rgb(255 255 255 / 13%);
+    --text: #ffffff;
+    --text-muted: #9a9996;
+    --text-faint: #77767b;
     --border: rgb(255 255 255 / 12%);
-    --border-strong: rgb(255 255 255 / 18%);
+    --border-strong: rgb(255 255 255 / 20%);
+    --accent: #3584e4;
+    --accent-text: #ffffff;
+    --accent-soft: rgb(53 132 228 / 22%);
+    --surface-float: var(--bg-raised);
+    --surface-float-border: var(--border);
   }
 
   :root[data-platform="kde"] {
@@ -168,8 +211,16 @@
     --bg-sunken: #1b1e20;
     --bg-hover: rgb(61 174 233 / 20%);
     --bg-active: rgb(61 174 233 / 30%);
+    --text: #eff0f1;
+    --text-muted: #93979b;
+    --text-faint: #70757a;
     --border: #4d545b;
     --border-strong: #656d75;
+    --accent: #3daee9;
+    --accent-text: #ffffff;
+    --accent-soft: rgb(61 174 233 / 25%);
+    --surface-float: var(--bg-raised);
+    --surface-float-border: var(--border-strong);
   }
 }
 
@@ -478,28 +529,151 @@ textarea.field {
   user-select: none !important;
 }
 
+/* ---------------------------------------------------- Dialogs & Modals */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgb(0 0 0 / 40%);
+}
+
+.dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 51;
+  display: flex;
+  flex-direction: column;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--surface-float-border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-float);
+  backdrop-filter: var(--surface-float-filter);
+  -webkit-backdrop-filter: var(--surface-float-filter);
+  box-shadow: var(--shadow-3);
+}
+
+:root[data-glass] .backdrop {
+  background: rgb(0 0 0 / 20%);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+:root[data-glass] .dialog {
+  border-radius: var(--pane-radius);
+  border: 1px solid var(--surface-float-border);
+  background: var(--surface-float);
+  backdrop-filter: var(--surface-float-filter);
+  -webkit-backdrop-filter: var(--surface-float-filter);
+  box-shadow: var(--glass-edge), 0 24px 64px rgb(0 0 0 / 22%), 0 2px 6px rgb(0 0 0 / 8%);
+}
+
+:root[data-platform="win"] .backdrop {
+  background: rgb(0 0 0 / 30%);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+:root[data-platform="win"] .dialog {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  box-shadow: 0 16px 40px rgb(0 0 0 / 20%), 0 2px 6px rgb(0 0 0 / 8%);
+}
+
+:root[data-platform="gnome"] .backdrop,
+:root[data-platform="linux"] .backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+
+:root[data-platform="gnome"] .dialog,
+:root[data-platform="linux"] .dialog {
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  box-shadow: 0 12px 36px rgb(0 0 0 / 24%);
+}
+
+:root[data-platform="kde"] .backdrop {
+  background: rgb(0 0 0 / 38%);
+}
+
+:root[data-platform="kde"] .dialog {
+  border-radius: 5px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-raised);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
+}
+
 /* ----------------------------------------------- Windows (Fluent Design) */
 :root[data-platform="win"] .btn {
   border-radius: var(--radius);
   transition: background-color 0.1s ease, border-color 0.1s ease;
 }
 
+:root[data-platform="win"] .btn.primary {
+  border-bottom: 2px solid rgb(0 0 0 / 25%);
+}
+
+:root[data-platform="win"] .btn.outlined {
+  border-color: var(--border);
+  background: var(--bg-raised);
+  border-bottom: 2px solid var(--border-strong);
+}
+
 :root[data-platform="win"] .field {
   border-radius: var(--radius);
+  border: 1px solid var(--border);
   border-bottom: 2px solid var(--border-strong);
+  background: var(--bg-raised);
 }
 
 :root[data-platform="win"] .field:focus {
   border-bottom-color: var(--accent);
 }
 
-/* --------------------------------- Linux / GNOME (Adwaita / Libadwaita) */
-:root[data-platform="gnome"] .btn {
-  border-radius: var(--radius);
+:root[data-platform="win"] .scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
 }
 
-:root[data-platform="gnome"] .tabbar {
+/* --------------------------------- Linux / GNOME (Adwaita / Libadwaita) */
+:root[data-platform="gnome"] .btn,
+:root[data-platform="linux"] .btn {
+  border-radius: var(--radius);
+  font-weight: 500;
+}
+
+:root[data-platform="gnome"] .btn.primary,
+:root[data-platform="linux"] .btn.primary {
+  border: none;
+  font-weight: 600;
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+:root[data-platform="gnome"] .field,
+:root[data-platform="linux"] .field {
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+
+:root[data-platform="gnome"] .field:focus,
+:root[data-platform="linux"] .field:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+:root[data-platform="gnome"] .tabbar,
+:root[data-platform="linux"] .tabbar {
   background: var(--bg-sunken);
+}
+
+:root[data-platform="gnome"] .scroll,
+:root[data-platform="linux"] .scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
 }
 
 /* ------------------------------------- Linux / KDE Plasma (Breeze) */
@@ -514,6 +688,12 @@ textarea.field {
   background: var(--bg-hover);
 }
 
+:root[data-platform="kde"] .btn.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
 :root[data-platform="kde"] .btn.selected {
   border-color: var(--accent);
   background: var(--accent);
@@ -525,10 +705,17 @@ textarea.field {
 }
 
 :root[data-platform="kde"] .field {
+  border-radius: var(--radius);
   border: 1px solid var(--border);
+  background: var(--bg-raised);
 }
 
 :root[data-platform="kde"] .field:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent);
+}
+
+:root[data-platform="kde"] .scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
 }

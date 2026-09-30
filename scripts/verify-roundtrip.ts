@@ -30,6 +30,7 @@ import {
 import { makePng } from "./fixtures/png.ts";
 
 import { buildSavedPdf, type SourceBytes } from "../src/lib/annotations/save.ts";
+import { auditPdf, optimizePdf, PRESETS } from "../src/lib/annotations/optimize.ts";
 import {
   latin1,
   serialize,
@@ -987,6 +988,34 @@ async function main() {
   check("flattening a form document burns fields into static graphics", () => {
     assert.equal(flatFormSaved.fieldsWritten, 5);
     assert.equal(flatFormDoc.getForm().getFields().length, 0);
+  });
+
+  // -------------------------------------------------------- optimizer checks
+  console.log("\nOptimization & Compression…");
+  const audit = await auditPdf(baseBytes);
+  check("audit correctly reports document structure and page count", () => {
+    assert.equal(audit.pageCount, PAGE_COUNT);
+    assert.equal(audit.formFieldCount, 1);
+  });
+
+  const optimized = await optimizePdf({
+    docBytes: baseBytes,
+    options: PRESETS.standard,
+  });
+
+  check("optimizer packs indirect objects into object streams", () => {
+    assert.ok(optimized.bytes.length > 0);
+    assert.ok(optimized.savedPercentage >= 0);
+  });
+
+  const cleanOptimized = await optimizePdf({
+    docBytes: formBytes,
+    options: PRESETS.high_compression,
+  });
+
+  check("high compression preset optimizes form document successfully", () => {
+    assert.ok(cleanOptimized.bytes.length > 0);
+    assert.ok(cleanOptimized.objectsDiscarded > 0);
   });
 
   console.log(

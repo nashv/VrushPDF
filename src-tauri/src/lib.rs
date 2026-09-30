@@ -1,5 +1,6 @@
 mod commands;
 pub mod encrypt;
+pub mod optimize;
 #[cfg(target_os = "macos")]
 mod glass;
 mod license;
@@ -90,6 +91,7 @@ pub fn run() {
             commands::license_remove,
             commands::get_desktop_environment,
             commands::print_pdf,
+            commands::optimize_image,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

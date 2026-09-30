@@ -170,6 +170,13 @@ function fileMenu(recentsSubmenu: Submenu, quit: Spec[]): Spec {
         enabled: hasDoc,
         action: () => void session.saveFlattened(),
       }),
+      item({
+        id: "file.optimize",
+        label: "Optimize PDF…",
+        accelerator: "CmdOrCtrl+Alt+O",
+        enabled: hasDoc,
+        action: () => session.openOptimizeDialog(),
+      }),
       sep,
       item({
         id: "file.print",

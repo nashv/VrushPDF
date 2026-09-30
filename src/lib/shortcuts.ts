@@ -77,6 +77,13 @@ export function handleShortcut(event: KeyboardEvent) {
 
     switch (lower) {
       case "o":
+        event.preventDefault();
+        if (event.altKey) {
+          session.openOptimizeDialog();
+        } else {
+          void session.openViaDialog();
+        }
+        return;
       case "t":
       case "n":
         event.preventDefault();
