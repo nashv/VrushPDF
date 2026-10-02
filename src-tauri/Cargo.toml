@@ -1,6 +1,6 @@
 [package]
 name = "vrushpdf"
-version = "0.5.4"
+version = "0.5.5"
 description = "A desktop PDF viewer and annotation editor"
 authors = ["nashv"]
 license-file = "../LICENSE"
@@ -37,6 +37,7 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png"]
 # signatures offline. `keygen/` uses the same two.
 base64 = "0.22"
 ed25519-dalek = "3"
+ureq = { version = "2.10", features = ["tls", "gzip", "json"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

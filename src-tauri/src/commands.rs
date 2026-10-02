@@ -8,12 +8,14 @@
 //! arbitrary UTF-8 filenames).
 
 use std::fs;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
-use tauri::{ipc, AppHandle, Manager, Runtime};
+use sha2::{Digest, Sha256};
+use tauri::{ipc, AppHandle, Emitter, Manager, Runtime};
 
 use crate::license;
 use crate::optimize::{self, OptimizeImageRequest, OptimizeImageResponse};
@@ -583,12 +585,264 @@ pub struct SystemTarget {
     pub arch: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DownloadUpdateArgs {
+    pub download_url: String,
+    pub asset_name: String,
+    pub sha256_url: Option<String>,
+    pub expected_sha256: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UpdateProgressPayload {
+    pub loaded: u64,
+    pub total: u64,
+    pub percent: u32,
+}
+
 #[tauri::command]
 pub fn get_system_target() -> SystemTarget {
     SystemTarget {
         os: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
     }
+}
+
+#[tauri::command]
+pub fn check_latest_release() -> Result<String, String> {
+    let resp = ureq::get("https://api.github.com/repos/nashv/VrushPDF/releases/latest")
+        .set("User-Agent", "VrushPDF-App")
+        .set("Accept", "application/vnd.github.v3+json")
+        .call()
+        .map_err(|e| format!("Release check failed: {e}"))?;
+
+    let body = resp
+        .into_string()
+        .map_err(|e| format!("Could not read release response: {e}"))?;
+    Ok(body)
+}
+
+fn parse_checksum_from_sums(sums_text: &str, asset_name: &str) -> Option<String> {
+    for line in sums_text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        if parts.len() >= 2 {
+            let filename = parts[1].trim_start_matches('*');
+            if filename.eq_ignore_ascii_case(asset_name) {
+                return Some(parts[0].trim().to_lowercase());
+            }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn execute_platform_installer(_asset_name: &str, temp_dmg: &Path) -> Result<(), String> {
+    let mount_point = std::env::temp_dir().join(format!(
+        "vrushpdf_mount_{}",
+        std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    ));
+    let _ = fs::create_dir_all(&mount_point);
+
+    // Find current app bundle if running from .app
+    let mut app_bundle = None;
+    if let Ok(current_exe) = std::env::current_exe() {
+        let mut cur = current_exe.as_path();
+        while let Some(parent) = cur.parent() {
+            if parent.extension().is_some_and(|ext| ext == "app") {
+                app_bundle = Some(parent.to_path_buf());
+                break;
+            }
+            cur = parent;
+        }
+    }
+
+    let script = if let Some(target_app) = app_bundle {
+        format!(
+            r#"
+            sleep 1
+            hdiutil attach -nobrowse -readonly "{dmg}" -mountpoint "{mount}" || exit 1
+            if [ -d "{mount}/VrushPDF.app" ]; then
+                rm -rf "{target}"
+                ditto "{mount}/VrushPDF.app" "{target}"
+            fi
+            hdiutil detach "{mount}" -force || true
+            rm -f "{dmg}"
+            open -a "{target}"
+            "#,
+            dmg = temp_dmg.display(),
+            mount = mount_point.display(),
+            target = target_app.display()
+        )
+    } else {
+        format!(
+            r#"
+            sleep 1
+            open "{dmg}"
+            "#,
+            dmg = temp_dmg.display()
+        )
+    };
+
+    std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(&script)
+        .spawn()
+        .map_err(|e| format!("failed to launch updater: {e}"))?;
+
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn execute_platform_installer(asset_name: &str, temp_file: &Path) -> Result<(), String> {
+    if asset_name.ends_with(".exe") {
+        std::process::Command::new(temp_file)
+            .arg("/S")
+            .spawn()
+            .map_err(|e| format!("failed to launch installer: {e}"))?;
+    } else if asset_name.ends_with(".msi") {
+        std::process::Command::new("msiexec")
+            .args(["/i", &temp_file.to_string_lossy(), "/passive"])
+            .spawn()
+            .map_err(|e| format!("failed to launch msi installer: {e}"))?;
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn execute_platform_installer(asset_name: &str, temp_file: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = fs::metadata(temp_file) {
+            let mut perms = meta.permissions();
+            perms.set_mode(0o755);
+            let _ = fs::set_permissions(temp_file, perms);
+        }
+    }
+
+    if asset_name.ends_with(".AppImage") {
+        std::process::Command::new(temp_file)
+            .spawn()
+            .map_err(|e| format!("failed to launch AppImage: {e}"))?;
+    } else if asset_name.ends_with(".deb") {
+        std::process::Command::new("xdg-open")
+            .arg(temp_file)
+            .spawn()
+            .map_err(|e| format!("failed to open deb package: {e}"))?;
+    }
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+fn execute_platform_installer(_asset_name: &str, _temp_file: &Path) -> Result<(), String> {
+    Err("Automatic installation is not supported on this platform".to_string())
+}
+
+#[tauri::command]
+pub fn download_and_install_update<R: Runtime>(
+    app: AppHandle<R>,
+    args: DownloadUpdateArgs,
+) -> Result<(), String> {
+    let expected_sha256 = match args.expected_sha256 {
+        Some(h) if !h.trim().is_empty() => Some(h.trim().to_lowercase()),
+        _ => {
+            if let Some(sha_url) = args.sha256_url {
+                match ureq::get(&sha_url)
+                    .set("User-Agent", "VrushPDF-Updater")
+                    .call()
+                {
+                    Ok(resp) => {
+                        if let Ok(text) = resp.into_string() {
+                            parse_checksum_from_sums(&text, &args.asset_name)
+                        } else {
+                            None
+                        }
+                    }
+                    Err(_) => None,
+                }
+            } else {
+                None
+            }
+        }
+    };
+
+    let temp_dir = std::env::temp_dir();
+    let temp_file_path = temp_dir.join(&args.asset_name);
+    let mut file = fs::File::create(&temp_file_path)
+        .map_err(|e| format!("Could not create temporary file for update: {e}"))?;
+
+    let response = ureq::get(&args.download_url)
+        .set("User-Agent", "VrushPDF-Updater")
+        .call()
+        .map_err(|e| format!("Download request failed: {e}"))?;
+
+    let total_bytes: u64 = response
+        .header("Content-Length")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+
+    let mut reader = response.into_reader();
+    let mut buffer = [0u8; 64 * 1024];
+    let mut loaded_bytes: u64 = 0;
+    let mut hasher = Sha256::new();
+    let mut last_emit = std::time::Instant::now();
+
+    loop {
+        let read_bytes = reader
+            .read(&mut buffer)
+            .map_err(|e| format!("Failed while downloading file: {e}"))?;
+        if read_bytes == 0 {
+            break;
+        }
+        let chunk = &buffer[..read_bytes];
+        hasher.update(chunk);
+        file.write_all(chunk)
+            .map_err(|e| format!("Failed writing update to disk: {e}"))?;
+        loaded_bytes += read_bytes as u64;
+
+        let percent = if total_bytes > 0 {
+            ((loaded_bytes as f64 / total_bytes as f64) * 100.0).min(100.0) as u32
+        } else {
+            0
+        };
+
+        if last_emit.elapsed() > std::time::Duration::from_millis(50) || percent == 100 {
+            let _ = app.emit(
+                "update-progress",
+                UpdateProgressPayload {
+                    loaded: loaded_bytes,
+                    total: if total_bytes > 0 { total_bytes } else { loaded_bytes },
+                    percent,
+                },
+            );
+            last_emit = std::time::Instant::now();
+        }
+    }
+
+    let _ = file.flush();
+    drop(file);
+
+    let actual_hash = format!("{:x}", hasher.finalize());
+    if let Some(expected) = expected_sha256 {
+        if !actual_hash.eq_ignore_ascii_case(&expected) {
+            let _ = fs::remove_file(&temp_file_path);
+            return Err(format!(
+                "Checksum verification failed for {}. Expected {}, computed {}",
+                args.asset_name, expected, actual_hash
+            ));
+        }
+    }
+
+    execute_platform_installer(&args.asset_name, &temp_file_path)?;
+
+    Ok(())
 }
 
 /// Receive downloaded update binary payload and execute platform installation.
@@ -600,124 +854,11 @@ pub fn install_update_payload<R: Runtime>(
     let asset_name = header(&request, "x-asset-name")?;
     let bytes = raw_body(&request)?;
 
-    #[cfg(target_os = "macos")]
-    {
-        let temp_dir = std::env::temp_dir();
-        let temp_dmg = temp_dir.join(&asset_name);
-        fs::write(&temp_dmg, bytes).map_err(|e| format!("could not write installer: {e}"))?;
+    let temp_dir = std::env::temp_dir();
+    let temp_file_path = temp_dir.join(&asset_name);
+    fs::write(&temp_file_path, bytes).map_err(|e| format!("could not write installer: {e}"))?;
 
-        let mount_point = temp_dir.join(format!(
-            "vrushpdf_mount_{}",
-            std::time::SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis()
-        ));
-        let _ = fs::create_dir_all(&mount_point);
-
-        // Find current app bundle if running from .app
-        let mut app_bundle = None;
-        if let Ok(current_exe) = std::env::current_exe() {
-            let mut cur = current_exe.as_path();
-            while let Some(parent) = cur.parent() {
-                if parent.extension().is_some_and(|ext| ext == "app") {
-                    app_bundle = Some(parent.to_path_buf());
-                    break;
-                }
-                cur = parent;
-            }
-        }
-
-        let script = if let Some(target_app) = app_bundle {
-            format!(
-                r#"
-                sleep 1
-                hdiutil attach -nobrowse -readonly "{dmg}" -mountpoint "{mount}" || exit 1
-                if [ -d "{mount}/VrushPDF.app" ]; then
-                    rm -rf "{target}"
-                    ditto "{mount}/VrushPDF.app" "{target}"
-                fi
-                hdiutil detach "{mount}" -force || true
-                rm -f "{dmg}"
-                open -a "{target}"
-                "#,
-                dmg = temp_dmg.display(),
-                mount = mount_point.display(),
-                target = target_app.display()
-            )
-        } else {
-            format!(
-                r#"
-                sleep 1
-                open "{dmg}"
-                "#,
-                dmg = temp_dmg.display()
-            )
-        };
-
-        std::process::Command::new("/bin/sh")
-            .arg("-c")
-            .arg(&script)
-            .spawn()
-            .map_err(|e| format!("failed to launch updater: {e}"))?;
-
-        Ok(())
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let temp_dir = std::env::temp_dir();
-        let temp_file = temp_dir.join(&asset_name);
-        fs::write(&temp_file, bytes).map_err(|e| format!("could not write installer: {e}"))?;
-
-        if asset_name.ends_with(".exe") {
-            std::process::Command::new(&temp_file)
-                .arg("/S")
-                .spawn()
-                .map_err(|e| format!("failed to launch installer: {e}"))?;
-        } else if asset_name.ends_with(".msi") {
-            std::process::Command::new("msiexec")
-                .args(["/i", &temp_file.to_string_lossy(), "/passive"])
-                .spawn()
-                .map_err(|e| format!("failed to launch msi installer: {e}"))?;
-        }
-        Ok(())
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        let temp_dir = std::env::temp_dir();
-        let temp_file = temp_dir.join(&asset_name);
-        fs::write(&temp_file, bytes).map_err(|e| format!("could not write update file: {e}"))?;
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if let Ok(meta) = fs::metadata(&temp_file) {
-                let mut perms = meta.permissions();
-                perms.set_mode(0o755);
-                let _ = fs::set_permissions(&temp_file, perms);
-            }
-        }
-
-        if asset_name.ends_with(".AppImage") {
-            std::process::Command::new(&temp_file)
-                .spawn()
-                .map_err(|e| format!("failed to launch AppImage: {e}"))?;
-        } else if asset_name.ends_with(".deb") {
-            std::process::Command::new("xdg-open")
-                .arg(&temp_file)
-                .spawn()
-                .map_err(|e| format!("failed to open deb package: {e}"))?;
-        }
-        Ok(())
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-    {
-        let _ = (asset_name, bytes);
-        Err("Automatic installation is not supported on this platform".to_string())
-    }
+    execute_platform_installer(&asset_name, &temp_file_path)
 }
 
 #[tauri::command]

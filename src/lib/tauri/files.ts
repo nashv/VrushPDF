@@ -113,7 +113,40 @@ export interface SystemTarget {
   arch: string;
 }
 
+export interface DownloadUpdateArgs {
+  downloadUrl: string;
+  assetName: string;
+  sha256Url?: string | null;
+  expectedSha256?: string | null;
+}
+
+export interface UpdateProgressEvent {
+  loaded: number;
+  total: number;
+  percent: number;
+}
+
 export const getSystemTarget = () => invoke<SystemTarget>("get_system_target");
+
+export const checkLatestRelease = () => invoke<string>("check_latest_release");
+
+export const downloadAndInstallUpdate = (args: DownloadUpdateArgs) =>
+  invoke<void>("download_and_install_update", {
+    args: {
+      download_url: args.downloadUrl,
+      asset_name: args.assetName,
+      sha256_url: args.sha256Url ?? null,
+      expected_sha256: args.expectedSha256 ?? null,
+    },
+  });
+
+export async function onUpdateProgress(
+  handler: (progress: UpdateProgressEvent) => void,
+): Promise<() => void> {
+  return listen<UpdateProgressEvent>("update-progress", (event) => {
+    if (event.payload) handler(event.payload);
+  });
+}
 
 export async function installUpdatePayload(assetName: string, bytes: Uint8Array): Promise<void> {
   const headers: Record<string, string> = { "x-asset-name": encodeURIComponent(assetName) };

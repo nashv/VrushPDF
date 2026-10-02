@@ -136,7 +136,7 @@
           <Icon name="warning" size={20} />
         </div>
         <div class="status-texts">
-          <div class="status-title">Update Check Failed</div>
+          <div class="status-title">{updater.release ? "Update Failed" : "Update Check Failed"}</div>
           <div class="status-sub error-text">
             {updater.errorMessage || "An unexpected error occurred while communicating with the release server."}
           </div>

@@ -93,6 +93,8 @@ pub fn run() {
             commands::print_pdf,
             commands::optimize_image,
             commands::get_system_target,
+            commands::check_latest_release,
+            commands::download_and_install_update,
             commands::install_update_payload,
             commands::relaunch_app,
         ])

@@ -11,8 +11,10 @@ import { platform as detectedPlatform } from "$lib/platform";
 import { session } from "$lib/state/session.svelte";
 import { settings } from "$lib/state/settings.svelte";
 import {
+  checkLatestRelease,
+  downloadAndInstallUpdate,
   getSystemTarget,
-  installUpdatePayload,
+  onUpdateProgress,
   relaunchApp,
   type SystemTarget,
 } from "$lib/tauri/files";
@@ -58,7 +60,7 @@ const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/lates
 class UpdaterStore {
   status = $state<UpdateStatus>("idle");
   dialogOpen = $state(false);
-  currentVersion = $state("0.5.4");
+  currentVersion = $state("0.5.5");
   release = $state<ReleaseInfo | null>(null);
   progress = $state<DownloadProgress>({ loaded: 0, total: 0, percent: 0 });
   errorMessage = $state<string | null>(null);
@@ -123,15 +125,22 @@ class UpdaterStore {
     }
 
     try {
-      const response = await fetch(RELEASES_API, {
-        headers: { Accept: "application/vnd.github.v3+json" },
-      });
+      let data: any = null;
+      try {
+        const rawJson = await checkLatestRelease();
+        data = JSON.parse(rawJson);
+      } catch {
+        const response = await fetch(RELEASES_API, {
+          headers: { Accept: "application/vnd.github.v3+json" },
+        });
 
-      if (!response.ok) {
-        throw new Error(`GitHub release check failed (${response.status}: ${response.statusText})`);
+        if (!response.ok) {
+          throw new Error(`GitHub release check failed (${response.status}: ${response.statusText})`);
+        }
+
+        data = await response.json();
       }
 
-      const data = await response.json();
       const tagName: string = data.tag_name || "";
       const remoteVersion = tagName.replace(/^v/i, "");
       const isNewer = compareSemver(remoteVersion, this.currentVersion) > 0;
@@ -194,78 +203,37 @@ class UpdaterStore {
     this.progress = { loaded: 0, total: asset.size || 0, percent: 0 };
     this.errorMessage = null;
 
+    let unlisten: (() => void) | null = null;
     try {
-      // 1. Download installer asset with stream progress
-      const response = await fetch(asset.browser_download_url);
-      if (!response.ok) {
-        throw new Error(`Failed to download installer (${response.status}: ${response.statusText})`);
-      }
-
-      const contentLength = Number(response.headers.get("content-length")) || asset.size || 0;
-      const reader = response.body?.getReader();
-
-      let received = 0;
-      const chunks: Uint8Array[] = [];
-
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (value) {
-            chunks.push(value);
-            received += value.length;
-            const percent = contentLength > 0 ? Math.min(100, Math.round((received / contentLength) * 100)) : 0;
-            this.progress = {
-              loaded: received,
-              total: contentLength || received,
-              percent,
-            };
-          }
+      unlisten = await onUpdateProgress((p) => {
+        this.progress = {
+          loaded: p.loaded,
+          total: p.total || asset.size || p.loaded,
+          percent: p.percent,
+        };
+        if (p.percent === 100) {
+          this.status = "installing";
         }
-      } else {
-        const buf = await response.arrayBuffer();
-        chunks.push(new Uint8Array(buf));
-        received = buf.byteLength;
-      }
+      });
 
-      const totalBytes = new Uint8Array(received);
-      let offset = 0;
-      for (const chunk of chunks) {
-        totalBytes.set(chunk, offset);
-        offset += chunk.length;
-      }
+      await downloadAndInstallUpdate({
+        downloadUrl: asset.browser_download_url,
+        assetName: asset.name,
+        sha256Url: this.release.sha256Asset?.browser_download_url ?? null,
+      });
 
-      // 2. Validate SHA-256 checksum if SHA256SUMS.txt is available
-      if (this.release.sha256Asset) {
-        try {
-          const shaResp = await fetch(this.release.sha256Asset.browser_download_url);
-          if (shaResp.ok) {
-            const shaText = await shaResp.text();
-            const expectedHash = this.#findChecksum(shaText, asset.name);
-            if (expectedHash) {
-              const digestBuf = await crypto.subtle.digest("SHA-256", totalBytes);
-              const actualHash = Array.from(new Uint8Array(digestBuf))
-                .map((b) => b.toString(16).padStart(2, "0"))
-                .join("");
-
-              if (actualHash.toLowerCase() !== expectedHash.toLowerCase()) {
-                throw new Error("Installer checksum verification failed. The download may be corrupted.");
-              }
-            }
-          }
-        } catch (shaErr) {
-          console.warn("Checksum check skipped or failed:", shaErr);
-        }
-      }
-
-      // 3. Install payload via Rust backend
-      this.status = "installing";
-      await installUpdatePayload(asset.name, totalBytes);
       this.status = "ready";
+      if (!this.isManual) {
+        session.notify(`VrushPDF ${this.release.tagName} is ready to install on restart.`, "info");
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.errorMessage = msg;
       this.status = "error";
+    } finally {
+      if (unlisten) {
+        unlisten();
+      }
     }
   }
 
