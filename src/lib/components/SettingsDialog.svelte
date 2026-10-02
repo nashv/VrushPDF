@@ -79,6 +79,20 @@
         </span>
       </span>
     </label>
+
+    <label class="row">
+      <input
+        type="checkbox"
+        checked={settings.autoUpdate}
+        onchange={(event) => settings.setAutoUpdate(event.currentTarget.checked)}
+      />
+      <span class="lines">
+        <span>Automatically check for updates</span>
+        <span class="note muted">
+          Check the public VrushPDF repository for later releases and notify when updates are available.
+        </span>
+      </span>
+    </label>
   </div>
 
   <footer>

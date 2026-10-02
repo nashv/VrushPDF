@@ -574,3 +574,153 @@ fn print_pdf_native<R: Runtime>(
 pub fn optimize_image(req: OptimizeImageRequest) -> Result<OptimizeImageResponse, String> {
     optimize::optimize_image_buffer(req)
 }
+
+// ----------------------------------------------------------------- auto-update
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SystemTarget {
+    pub os: String,
+    pub arch: String,
+}
+
+#[tauri::command]
+pub fn get_system_target() -> SystemTarget {
+    SystemTarget {
+        os: std::env::consts::OS.to_string(),
+        arch: std::env::consts::ARCH.to_string(),
+    }
+}
+
+/// Receive downloaded update binary payload and execute platform installation.
+#[tauri::command]
+pub fn install_update_payload<R: Runtime>(
+    _app: AppHandle<R>,
+    request: ipc::Request<'_>,
+) -> Result<(), String> {
+    let asset_name = header(&request, "x-asset-name")?;
+    let bytes = raw_body(&request)?;
+
+    #[cfg(target_os = "macos")]
+    {
+        let temp_dir = std::env::temp_dir();
+        let temp_dmg = temp_dir.join(&asset_name);
+        fs::write(&temp_dmg, bytes).map_err(|e| format!("could not write installer: {e}"))?;
+
+        let mount_point = temp_dir.join(format!(
+            "vrushpdf_mount_{}",
+            std::time::SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        ));
+        let _ = fs::create_dir_all(&mount_point);
+
+        // Find current app bundle if running from .app
+        let mut app_bundle = None;
+        if let Ok(current_exe) = std::env::current_exe() {
+            let mut cur = current_exe.as_path();
+            while let Some(parent) = cur.parent() {
+                if parent.extension().is_some_and(|ext| ext == "app") {
+                    app_bundle = Some(parent.to_path_buf());
+                    break;
+                }
+                cur = parent;
+            }
+        }
+
+        let script = if let Some(target_app) = app_bundle {
+            format!(
+                r#"
+                sleep 1
+                hdiutil attach -nobrowse -readonly "{dmg}" -mountpoint "{mount}" || exit 1
+                if [ -d "{mount}/VrushPDF.app" ]; then
+                    rm -rf "{target}"
+                    ditto "{mount}/VrushPDF.app" "{target}"
+                fi
+                hdiutil detach "{mount}" -force || true
+                rm -f "{dmg}"
+                open -a "{target}"
+                "#,
+                dmg = temp_dmg.display(),
+                mount = mount_point.display(),
+                target = target_app.display()
+            )
+        } else {
+            format!(
+                r#"
+                sleep 1
+                open "{dmg}"
+                "#,
+                dmg = temp_dmg.display()
+            )
+        };
+
+        std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(&script)
+            .spawn()
+            .map_err(|e| format!("failed to launch updater: {e}"))?;
+
+        Ok(())
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join(&asset_name);
+        fs::write(&temp_file, bytes).map_err(|e| format!("could not write installer: {e}"))?;
+
+        if asset_name.ends_with(".exe") {
+            std::process::Command::new(&temp_file)
+                .arg("/S")
+                .spawn()
+                .map_err(|e| format!("failed to launch installer: {e}"))?;
+        } else if asset_name.ends_with(".msi") {
+            std::process::Command::new("msiexec")
+                .args(["/i", &temp_file.to_string_lossy(), "/passive"])
+                .spawn()
+                .map_err(|e| format!("failed to launch msi installer: {e}"))?;
+        }
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join(&asset_name);
+        fs::write(&temp_file, bytes).map_err(|e| format!("could not write update file: {e}"))?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(meta) = fs::metadata(&temp_file) {
+                let mut perms = meta.permissions();
+                perms.set_mode(0o755);
+                let _ = fs::set_permissions(&temp_file, perms);
+            }
+        }
+
+        if asset_name.ends_with(".AppImage") {
+            std::process::Command::new(&temp_file)
+                .spawn()
+                .map_err(|e| format!("failed to launch AppImage: {e}"))?;
+        } else if asset_name.ends_with(".deb") {
+            std::process::Command::new("xdg-open")
+                .arg(&temp_file)
+                .spawn()
+                .map_err(|e| format!("failed to open deb package: {e}"))?;
+        }
+        Ok(())
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        let _ = (asset_name, bytes);
+        Err("Automatic installation is not supported on this platform".to_string())
+    }
+}
+
+#[tauri::command]
+pub fn relaunch_app<R: Runtime>(app: AppHandle<R>) {
+    app.restart();
+}

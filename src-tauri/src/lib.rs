@@ -92,6 +92,9 @@ pub fn run() {
             commands::get_desktop_environment,
             commands::print_pdf,
             commands::optimize_image,
+            commands::get_system_target,
+            commands::install_update_payload,
+            commands::relaunch_app,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

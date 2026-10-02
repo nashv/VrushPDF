@@ -26,6 +26,8 @@ pub struct Settings {
     pub single_instance: bool,
     /// Warn before saving a signed document unflattened.
     pub warn_unflattened_signatures: bool,
+    /// Check for and notify about updates automatically.
+    pub auto_update: bool,
 }
 
 impl Default for Settings {
@@ -33,6 +35,7 @@ impl Default for Settings {
         Self {
             single_instance: true,
             warn_unflattened_signatures: true,
+            auto_update: true,
         }
     }
 }

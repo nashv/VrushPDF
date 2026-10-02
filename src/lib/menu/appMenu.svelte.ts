@@ -34,6 +34,7 @@ import { isMac } from "$lib/platform";
 import { license } from "$lib/state/license.svelte";
 import { recents } from "$lib/state/recents.svelte";
 import { session } from "$lib/state/session.svelte";
+import { updater } from "$lib/state/updater.svelte";
 import { viewer, type SidebarTab, type Tool } from "$lib/state/viewer.svelte";
 import { workspace } from "$lib/state/workspace.svelte";
 
@@ -708,6 +709,12 @@ export async function installAppMenu(hooks: {
       action: () => license.openDialog(),
     });
 
+    const checkForUpdatesItem = item({
+      id: "help.check_updates",
+      label: "Check for Updates…",
+      action: () => void updater.checkForUpdates({ manual: true }),
+    });
+
     const about: Spec = {
       kind: "native",
       item: {
@@ -727,6 +734,8 @@ export async function installAppMenu(hooks: {
             label: "VrushPDF",
             items: [
               about,
+              checkForUpdatesItem,
+              sep,
               licenseItem,
               sep,
               settingsItem,
@@ -743,9 +752,18 @@ export async function installAppMenu(hooks: {
         ]
       : [];
 
-    const helpMenu: Spec[] = isMac
-      ? [] // macOS puts About in the app menu, so a Help menu would hold nothing.
-      : [{ kind: "menu", label: "Help", items: [licenseItem, sep, about] }];
+    const helpMenu: Spec[] = [
+      {
+        kind: "menu",
+        label: "Help",
+        items: [
+          checkForUpdatesItem,
+          sep,
+          licenseItem,
+          ...(isMac ? [] : [sep, about]),
+        ],
+      },
+    ];
 
     const recentsSubmenu = await Submenu.new({ text: "Open Recent", items: [] });
 

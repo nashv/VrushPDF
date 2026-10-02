@@ -152,13 +152,16 @@ function stubSource(seeds: Record<string, string>, cliPath: string): string {
         }
         case "file_meta": return metaFor(args.path);
         case "recents_get": return [];
-        case "settings_get": return { singleInstance: true, warnUnflattenedSignatures: true };
+        case "settings_get": return { singleInstance: true, warnUnflattenedSignatures: true, autoUpdate: true };
         case "settings_set": return null;
+        case "get_system_target": return { os: "macos", arch: "aarch64" };
+        case "install_update_payload": return null;
+        case "relaunch_app": return null;
         case "license_status": return window.__license;
         case "recents_add": return [];
         case "signatures_list": return [];
         case "write_file": return metaFor(path);
-        case "plugin:app|version": return "0.5.2";
+        case "plugin:app|version": return "0.5.3";
         case "plugin:menu|new": return [menuRid++, (args.options && args.options.id) || "menu-" + menuRid];
         case "plugin:menu|append":
         case "plugin:menu|remove_at": return null;

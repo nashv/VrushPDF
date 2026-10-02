@@ -184,8 +184,11 @@ function stubSource(seeds: Record<string, string>, cliPath: string): string {
         }
         case "file_meta": return metaFor(args.path);
         case "recents_get": return [];
-        case "settings_get": return { singleInstance: true };
+        case "settings_get": return { singleInstance: true, warnUnflattenedSignatures: true, autoUpdate: true };
         case "settings_set": return null;
+        case "get_system_target": return { os: "macos", arch: "aarch64" };
+        case "install_update_payload": return null;
+        case "relaunch_app": return null;
         // A trial by default, so every earlier section runs with editing on
         // and the trial capsule is on screen. The license section changes it.
         case "license_status": return window.__license;
@@ -1644,6 +1647,9 @@ async function main() {
      */
     check("Settings… exists in the menu", () =>
       assert.ok(menuIdsForMerge.includes("app.settings"), "no app.settings item was created"),
+    );
+    check("Check for Updates… exists in the menu", () =>
+      assert.ok(menuIdsForMerge.includes("help.check_updates"), "no help.check_updates item was created"),
     );
     const ipc = await cdp.eval<string[]>("window.__ipcCalls");
     check("stored settings are loaded at startup", () =>

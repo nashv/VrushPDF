@@ -11,6 +11,7 @@
   import PasswordDialog from "$lib/components/PasswordDialog.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
   import SignatureWarningDialog from "$lib/components/SignatureWarningDialog.svelte";
+  import UpdateDialog from "$lib/components/UpdateDialog.svelte";
   import Resizer from "$lib/components/Resizer.svelte";
   import SignaturePad from "$lib/components/SignaturePad.svelte";
   import Sidebar from "$lib/components/Sidebar.svelte";
@@ -27,6 +28,7 @@
   import { recents } from "$lib/state/recents.svelte";
   import { session } from "$lib/state/session.svelte";
   import { settings } from "$lib/state/settings.svelte";
+  import { updater } from "$lib/state/updater.svelte";
   import { viewer } from "$lib/state/viewer.svelte";
   import { workspace } from "$lib/state/workspace.svelte";
   import { cliFile, onExternalOpen } from "$lib/tauri/files";
@@ -41,7 +43,12 @@
     void images.loadSignatures();
     void images.loadStandard();
     void recents.refresh();
-    void settings.load();
+    void settings.load().then(() => {
+      // Auto-check for updates after launch if enabled
+      setTimeout(() => {
+        void updater.checkForUpdates({ manual: false });
+      }, 3000);
+    });
     void license.load();
 
     // The native menu bar: macOS gets it app-wide, Windows and Linux in-window.
@@ -175,6 +182,10 @@
 
 {#if license.dialogOpen}
   <LicenseDialog />
+{/if}
+
+{#if updater.dialogOpen}
+  <UpdateDialog />
 {/if}
 
 <ConfirmDialog />

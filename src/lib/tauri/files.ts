@@ -100,10 +100,29 @@ export const recentsClear = () => invoke<void>("recents_clear");
 export interface AppSettings {
   singleInstance: boolean;
   warnUnflattenedSignatures?: boolean;
+  autoUpdate?: boolean;
 }
 
 export const settingsGet = () => invoke<AppSettings>("settings_get");
 export const settingsSet = (settings: AppSettings) => invoke<void>("settings_set", { settings });
+
+// ------------------------------------------------------------------ auto-update
+
+export interface SystemTarget {
+  os: string;
+  arch: string;
+}
+
+export const getSystemTarget = () => invoke<SystemTarget>("get_system_target");
+
+export async function installUpdatePayload(assetName: string, bytes: Uint8Array): Promise<void> {
+  const headers: Record<string, string> = { "x-asset-name": encodeURIComponent(assetName) };
+  return invoke<void>("install_update_payload", bytes, {
+    headers,
+  });
+}
+
+export const relaunchApp = () => invoke<void>("relaunch_app");
 
 // ------------------------------------------------------------------ dialogs
 

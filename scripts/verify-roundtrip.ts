@@ -40,6 +40,7 @@ import {
 import { shownText } from "../src/lib/content/text.ts";
 import { detectBlocks, type TextRun } from "../src/lib/content/blocks.ts";
 import { createFreeText, freeTextRectAt } from "../src/lib/annotations/create.ts";
+import { compareSemver, pickAssetForSystem, type ReleaseAsset } from "../src/lib/updater/version.ts";
 import { importAnnots } from "../src/lib/annotations/import.ts";
 import type { ImageSource } from "../src/lib/annotations/write.ts";
 import {
@@ -1090,6 +1091,40 @@ async function main() {
       assert.equal(ft.padding, 6);
       assert.equal(ft.bgColor, "#ffffff");
     }
+  });
+
+  // ---------------------------------------------------- updater & version checks
+  console.log("\nUpdater Version Comparison & Asset Resolution…");
+  check("semver comparator correctly orders versions", () => {
+    assert.equal(compareSemver("0.5.3", "0.5.2"), 1);
+    assert.equal(compareSemver("v0.5.2", "0.5.2"), 0);
+    assert.equal(compareSemver("0.5.1", "0.5.2"), -1);
+    assert.equal(compareSemver("1.0.0", "0.9.9"), 1);
+    assert.equal(compareSemver("0.6.0", "0.5.9"), 1);
+    assert.equal(compareSemver("0.5.2.1", "0.5.2"), 1);
+  });
+
+  const mockAssets: ReleaseAsset[] = [
+    { name: "VrushPDF_0.5.3_aarch64.dmg", size: 4500000, browser_download_url: "https://example.com/arm.dmg" },
+    { name: "VrushPDF_0.5.3_x64.dmg", size: 4800000, browser_download_url: "https://example.com/x64.dmg" },
+    { name: "VrushPDF_0.5.3_x64-setup.exe", size: 4200000, browser_download_url: "https://example.com/setup.exe" },
+    { name: "VrushPDF_0.5.3_amd64.AppImage", size: 85000000, browser_download_url: "https://example.com/appimage" },
+    { name: "VrushPDF_0.5.3_amd64.deb", size: 5200000, browser_download_url: "https://example.com/deb" },
+    { name: "SHA256SUMS.txt", size: 500, browser_download_url: "https://example.com/sums" },
+  ];
+
+  check("pickAssetForSystem resolves matching installer for target platform", () => {
+    const macArm = pickAssetForSystem(mockAssets, { os: "macos", arch: "aarch64" });
+    assert.equal(macArm?.name, "VrushPDF_0.5.3_aarch64.dmg");
+
+    const macIntel = pickAssetForSystem(mockAssets, { os: "macos", arch: "x86_64" });
+    assert.equal(macIntel?.name, "VrushPDF_0.5.3_x64.dmg");
+
+    const win = pickAssetForSystem(mockAssets, { os: "windows", arch: "x86_64" });
+    assert.equal(win?.name, "VrushPDF_0.5.3_x64-setup.exe");
+
+    const linux = pickAssetForSystem(mockAssets, { os: "linux", arch: "x86_64" });
+    assert.equal(linux?.name, "VrushPDF_0.5.3_amd64.AppImage");
   });
 
   console.log(

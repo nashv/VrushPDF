@@ -12,6 +12,7 @@ class SettingsStore {
   /** Mirrors `settings.json`; the default matches the Rust side. */
   singleInstance = $state(true);
   warnUnflattenedSignatures = $state(true);
+  autoUpdate = $state(true);
   loaded = $state(false);
 
   async load() {
@@ -20,6 +21,9 @@ class SettingsStore {
       this.singleInstance = stored.singleInstance ?? true;
       if (typeof stored.warnUnflattenedSignatures === "boolean") {
         this.warnUnflattenedSignatures = stored.warnUnflattenedSignatures;
+      }
+      if (typeof stored.autoUpdate === "boolean") {
+        this.autoUpdate = stored.autoUpdate;
       }
     } catch {
       // No file yet, or running outside Tauri: the defaults above stand.
@@ -38,10 +42,16 @@ class SettingsStore {
     await this.#save();
   }
 
+  async setAutoUpdate(on: boolean) {
+    this.autoUpdate = on;
+    await this.#save();
+  }
+
   async #save() {
     const settings: AppSettings = {
       singleInstance: this.singleInstance,
       warnUnflattenedSignatures: this.warnUnflattenedSignatures,
+      autoUpdate: this.autoUpdate,
     };
     try {
       await settingsSet(settings);
