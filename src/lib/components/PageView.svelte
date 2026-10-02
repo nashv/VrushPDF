@@ -35,16 +35,20 @@
     hasRect,
     isFreeText,
     isInk,
+    isNote,
     isStamp,
+    isTextMarkup,
     normalizeRect,
     scaleAnnotToRect,
     setFreeTextText,
     translateAnnot,
     type Annot,
     type FreeTextAnnot,
+    type NoteAnnot,
     type PageEntry,
     type Point,
     type Rect,
+    type TextMarkupAnnot,
     type TextMarkupKind,
   } from "$lib/annotations/types";
   import {
@@ -52,6 +56,7 @@
     RenderCancelled,
     pdfPerCssPixel,
     toPdfPoint,
+    toViewportPoint,
     viewportFor,
   } from "$lib/pdf/render";
   import { clearSelection, mountTextLayer, selectionOnPage, type TextLayerHandle } from "$lib/pdf/textlayer";
@@ -63,6 +68,8 @@
   import AnnotLayer from "./AnnotLayer.svelte";
   import AnnotWidgets from "./AnnotWidgets.svelte";
   import FormLayer from "./FormLayer.svelte";
+  import PageContextMenu from "./PageContextMenu.svelte";
+  import CommentPopup from "./CommentPopup.svelte";
 
   let {
     tab,
@@ -92,6 +99,25 @@
   let surfaceEl: HTMLDivElement | undefined = $state();
   let renderError = $state<string | null>(null);
   let editingId = $state<string | null>(null);
+
+  let contextMenuState = $state<{
+    x: number;
+    y: number;
+    point: Point;
+    selection: { quads: any[]; text: string } | null;
+    targetAnnot: Annot | null;
+  } | null>(null);
+
+  let activeComment = $state<{
+    annotId: string;
+    x: number;
+    y: number;
+    isNew?: boolean;
+  } | null>(null);
+
+  const activeCommentAnnot = $derived(
+    activeComment ? edits.annots.find((a) => a.id === activeComment?.annotId) ?? null : null,
+  );
 
   /** Hit-test slop and ink simplification, in screen pixels. */
   const HIT_SLOP_PX = 4;
@@ -322,7 +348,15 @@
       case "note": {
         const annot = createNote(entry.id, p, style);
         edits.add(annot, "Add note");
+        edits.select(annot.id);
         viewer.inspectorOpen = true;
+        const vpPoint = toViewportPoint(viewport, p);
+        activeComment = {
+          annotId: annot.id,
+          x: vpPoint.x,
+          y: vpPoint.y,
+          isNew: true,
+        };
         return;
       }
 
@@ -491,15 +525,23 @@
     if (tool !== "select" || !viewport) return;
     const box = surfaceEl?.getBoundingClientRect();
     if (!box) return;
-    const p = toPdfPoint(viewport, event.clientX - box.left, event.clientY - box.top);
+    const x = event.clientX - box.left;
+    const y = event.clientY - box.top;
+    const p = toPdfPoint(viewport, x, y);
     const target = pick(annots, p, slop);
     if (target && isFreeText(target)) {
       edits.select(target.id);
       editingId = target.id;
     } else if (target) {
-      // Anything else: jump to its comment field.
+      // Anything else: open inline comment popup at cursor and show in inspector.
       edits.select(target.id);
       viewer.inspectorOpen = true;
+      activeComment = {
+        annotId: target.id,
+        x,
+        y,
+        isNew: false,
+      };
     }
   }
 
@@ -529,6 +571,153 @@
     return () => document.removeEventListener("pointerup", onDocumentPointerUp);
   });
 
+  // ------------------------------------------------------------ context menu & comments
+
+  function onPageContextMenu(event: MouseEvent) {
+    if (!viewport || !surfaceEl) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const box = surfaceEl.getBoundingClientRect();
+    const x = event.clientX - box.left;
+    const y = event.clientY - box.top;
+    const p = toPdfPoint(viewport, x, y);
+
+    const sel = textEl ? selectionOnPage(textEl, viewport) : null;
+    const target = pick(annots, p, slop);
+
+    contextMenuState = {
+      x,
+      y,
+      point: p,
+      selection: sel,
+      targetAnnot: target,
+    };
+  }
+
+  function onContextMenuAddSelectionComment() {
+    if (!contextMenuState?.selection || !viewport) return;
+    const sel = contextMenuState.selection;
+    const x = contextMenuState.x;
+    const y = contextMenuState.y;
+    contextMenuState = null;
+
+    const kind: TextMarkupKind = "highlight";
+    const annot = createTextMarkup(kind, entry.id, sel.quads, sel.text, viewer.styles[kind]);
+    edits.add(annot, "Add comment");
+    edits.select(annot.id);
+    clearSelection();
+
+    activeComment = {
+      annotId: annot.id,
+      x,
+      y,
+      isNew: true,
+    };
+  }
+
+  function onContextMenuAddNote() {
+    if (!contextMenuState || !viewport) return;
+    const p = contextMenuState.point;
+    const x = contextMenuState.x;
+    const y = contextMenuState.y;
+    contextMenuState = null;
+
+    const annot = createNote(entry.id, p, viewer.style);
+    edits.add(annot, "Add note");
+    edits.select(annot.id);
+
+    activeComment = {
+      annotId: annot.id,
+      x,
+      y,
+      isNew: true,
+    };
+  }
+
+  function onContextMenuAddTextBox() {
+    if (!contextMenuState || !viewport) return;
+    const p = contextMenuState.point;
+    contextMenuState = null;
+
+    const annot = createFreeText(
+      entry.id,
+      freeTextRectAt(p, viewer.style.fontSize),
+      viewer.style,
+    );
+    edits.add(annot, "Add text box");
+    edits.select(annot.id);
+    editingId = annot.id;
+  }
+
+  function onContextMenuMarkup(kind: TextMarkupKind) {
+    if (!contextMenuState?.selection) return;
+    const sel = contextMenuState.selection;
+    contextMenuState = null;
+
+    const annot = createTextMarkup(kind, entry.id, sel.quads, sel.text, viewer.styles[kind]);
+    edits.add(annot, `Add ${kind}`);
+    edits.select(annot.id);
+    clearSelection();
+  }
+
+  function onContextMenuCopy() {
+    if (!contextMenuState?.selection) return;
+    const text = contextMenuState.selection.text;
+    contextMenuState = null;
+    void navigator.clipboard.writeText(text);
+    clearSelection();
+  }
+
+  function onContextMenuEditComment() {
+    if (!contextMenuState?.targetAnnot) return;
+    const annot = contextMenuState.targetAnnot;
+    const x = contextMenuState.x;
+    const y = contextMenuState.y;
+    contextMenuState = null;
+
+    edits.select(annot.id);
+    activeComment = {
+      annotId: annot.id,
+      x,
+      y,
+      isNew: false,
+    };
+  }
+
+  function onContextMenuDeleteAnnot() {
+    if (!contextMenuState?.targetAnnot) return;
+    const id = contextMenuState.targetAnnot.id;
+    contextMenuState = null;
+    edits.remove(id, "Delete annotation");
+  }
+
+  function onCommentSave(contents: string) {
+    if (!activeComment) return;
+    const id = activeComment.annotId;
+    edits.update(id, { contents: contents.trim() }, "Edit comment");
+    activeComment = null;
+  }
+
+  function onCommentDelete() {
+    if (!activeComment) return;
+    const id = activeComment.annotId;
+    edits.remove(id, "Delete comment");
+    activeComment = null;
+  }
+
+  function onCommentClose() {
+    if (!activeComment) return;
+    const { annotId, isNew } = activeComment;
+    const annot = edits.annots.find((a) => a.id === annotId);
+    if (isNew && annot && (!annot.contents || annot.contents.trim().length === 0)) {
+      if (isNote(annot)) {
+        edits.remove(annotId, "Add note");
+      }
+    }
+    activeComment = null;
+  }
+
   // ------------------------------------------------------------ widget events
 
   function onHandleDown(event: PointerEvent, annot: Annot, handle: HandleId) {
@@ -539,11 +728,20 @@
   }
 
   function onNoteDown(event: PointerEvent, annot: Annot) {
-    if (tool !== "select") return;
+    if (tool !== "select" || !viewport) return;
     event.stopPropagation();
     const p = pointOf(event);
     edits.select(annot.id);
     viewer.inspectorOpen = true;
+
+    const vpPoint = toViewportPoint(viewport, (annot as NoteAnnot).point);
+    activeComment = {
+      annotId: annot.id,
+      x: vpPoint.x,
+      y: vpPoint.y,
+      isNew: false,
+    };
+
     if (p) beginGesture(event, { kind: "move", id: annot.id, from: p, original: annot }, "Move note");
   }
 
@@ -612,12 +810,14 @@
   const label = $derived(`Page ${pageIndex + 1}`);
 </script>
 
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="page"
   style:width="{viewport ? Math.floor(viewport.width) : placeholder.width}px"
   style:height="{viewport ? Math.floor(viewport.height) : placeholder.height}px"
   data-page-index={pageIndex}
   aria-label={label}
+  oncontextmenu={onPageContextMenu}
 >
   {#if renderError}
     <div class="page-error">{renderError}</div>
@@ -676,6 +876,44 @@
 
     {#if viewport && visible}
       <FormLayer {tab} {entry} {viewport} interactive={tool === "select"} />
+    {/if}
+
+    {#if viewport && contextMenuState}
+      <PageContextMenu
+        x={contextMenuState.x}
+        y={contextMenuState.y}
+        pageWidth={viewport.width}
+        pageHeight={viewport.height}
+        hasSelection={contextMenuState.selection !== null}
+        selectedText={contextMenuState.selection?.text ?? ""}
+        hasTargetAnnot={contextMenuState.targetAnnot !== null}
+        targetAnnot={contextMenuState.targetAnnot}
+        onAddComment={contextMenuState.selection ? onContextMenuAddSelectionComment : onContextMenuAddNote}
+        onHighlight={() => onContextMenuMarkup("highlight")}
+        onUnderline={() => onContextMenuMarkup("underline")}
+        onStrikeout={() => onContextMenuMarkup("strikeout")}
+        onCopyText={onContextMenuCopy}
+        onAddTextBox={onContextMenuAddTextBox}
+        onEditComment={onContextMenuEditComment}
+        onDeleteAnnot={onContextMenuDeleteAnnot}
+        onClose={() => {
+          contextMenuState = null;
+        }}
+      />
+    {/if}
+
+    {#if viewport && activeComment && activeCommentAnnot}
+      <CommentPopup
+        annot={activeCommentAnnot}
+        x={activeComment.x}
+        y={activeComment.y}
+        pageWidth={viewport.width}
+        pageHeight={viewport.height}
+        isNew={activeComment.isNew}
+        onSave={onCommentSave}
+        onDelete={onCommentDelete}
+        onClose={onCommentClose}
+      />
     {/if}
   </div>
 </div>

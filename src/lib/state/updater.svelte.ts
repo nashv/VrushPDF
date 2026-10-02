@@ -58,7 +58,7 @@ const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/lates
 class UpdaterStore {
   status = $state<UpdateStatus>("idle");
   dialogOpen = $state(false);
-  currentVersion = $state("0.5.3");
+  currentVersion = $state("0.5.4");
   release = $state<ReleaseInfo | null>(null);
   progress = $state<DownloadProgress>({ loaded: 0, total: 0, percent: 0 });
   errorMessage = $state<string | null>(null);

@@ -161,7 +161,7 @@ function stubSource(seeds: Record<string, string>, cliPath: string): string {
         case "recents_add": return [];
         case "signatures_list": return [];
         case "write_file": return metaFor(path);
-        case "plugin:app|version": return "0.5.3";
+        case "plugin:app|version": return "0.5.4";
         case "plugin:menu|new": return [menuRid++, (args.options && args.options.id) || "menu-" + menuRid];
         case "plugin:menu|append":
         case "plugin:menu|remove_at": return null;

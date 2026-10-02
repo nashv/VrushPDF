@@ -615,6 +615,47 @@ async function main() {
       }
     })()`);
     await sleep(200);
+    // --- right click commenting on page
+    await cdp.eval(`(() => {
+      const page = document.querySelector('.page[data-page-index="0"]');
+      const box = page.getBoundingClientRect();
+      const evt = new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: box.left + 200,
+        clientY: box.top + 300,
+      });
+      page.dispatchEvent(evt);
+    })()`);
+    await sleep(200);
+    const hasContextMenu = await cdp.eval<boolean>("!!document.querySelector('.context-menu')");
+    check("right clicking on the page opens context menu", () => assert.ok(hasContextMenu));
+
+    // Click "Add Comment"
+    await cdp.eval(`(() => {
+      const btn = [...document.querySelectorAll('.context-menu .menu-item')].find(b => b.textContent.includes('Add Comment'));
+      btn?.click();
+    })()`);
+    await sleep(200);
+    const hasCommentPopup = await cdp.eval<boolean>("!!document.querySelector('.comment-popup')");
+    check("clicking Add Comment opens the floating comment popup at cursor", () => assert.ok(hasCommentPopup));
+
+    // Type comment and save
+    await cdp.eval(`(() => {
+      const ta = document.querySelector('.comment-popup textarea');
+      if (ta) {
+        ta.value = "Right-click note comment";
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      const saveBtn = document.querySelector('.comment-popup .btn.primary');
+      saveBtn?.click();
+    })()`);
+    await sleep(200);
+    const noteCreated = await cdp.eval<boolean>(`(() => {
+      return [...document.querySelectorAll('.widgets .note')].length > 0;
+    })()`);
+    check("saving comment popup persists the note annotation", () => assert.ok(noteCreated));
+
     // Switch to select tool, then back to rectangle for style controls
     await cdp.eval("document.querySelector('[title^=\"Select\"]').click()");
     await sleep(200);
