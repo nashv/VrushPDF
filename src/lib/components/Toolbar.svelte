@@ -72,7 +72,7 @@
         styledKind,
       ),
   );
-  const showFill = $derived(styledKind === "square" || styledKind === "circle");
+  const showFill = $derived(styledKind === "square" || styledKind === "circle" || styledKind === "freetext");
   const showFontSize = $derived(styledKind === "freetext");
 
   const zoomLabel = $derived(`${Math.round((tab?.view.scale ?? 1) * 100)}%`);
@@ -417,6 +417,76 @@
           </label>
         {/if}
 
+        {#if styledKind === "freetext"}
+          <select
+            class="style-select"
+            value={style.fontFamily ?? "Helvetica"}
+            aria-label="Font family"
+            title="Font family"
+            onchange={(event) => setStyle({ fontFamily: event.currentTarget.value as any })}
+          >
+            <option value="Helvetica">Helvetica</option>
+            <option value="Times">Times</option>
+            <option value="Courier">Courier</option>
+          </select>
+
+          <span class="style-group" role="group" aria-label="Font style">
+            <button
+              type="button"
+              class="style-btn"
+              class:on={style.bold}
+              title="Bold"
+              aria-label="Bold"
+              onclick={() => setStyle({ bold: !style.bold })}
+            >
+              <strong>B</strong>
+            </button>
+            <button
+              type="button"
+              class="style-btn"
+              class:on={style.italic}
+              title="Italic"
+              aria-label="Italic"
+              onclick={() => setStyle({ italic: !style.italic })}
+            >
+              <em>I</em>
+            </button>
+          </span>
+
+          <span class="style-group" role="group" aria-label="Alignment">
+            <button
+              type="button"
+              class="style-btn"
+              class:on={(style.align ?? "left") === "left"}
+              title="Align left"
+              aria-label="Align left"
+              onclick={() => setStyle({ align: "left" })}
+            >
+              L
+            </button>
+            <button
+              type="button"
+              class="style-btn"
+              class:on={style.align === "center"}
+              title="Align center"
+              aria-label="Align center"
+              onclick={() => setStyle({ align: "center" })}
+            >
+              C
+            </button>
+            <button
+              type="button"
+              class="style-btn"
+              class:on={style.align === "right"}
+              title="Align right"
+              aria-label="Align right"
+              onclick={() => setStyle({ align: "right" })}
+            >
+              R
+            </button>
+          </span>
+        {/if}
+
         <label class="slider" title="Opacity">
           <span class="opacity-icon" aria-hidden="true"></span>
           <input
@@ -431,14 +501,14 @@
         </label>
 
         {#if showFill}
-          <label class="fill" title="Fill colour">
+          <label class="fill" title={styledKind === "freetext" ? "Whiteout / Background" : "Fill colour"}>
             <input
               type="checkbox"
               checked={style.fill !== null}
               onchange={(event) =>
-                setStyle({ fill: event.currentTarget.checked ? style.color : null })}
+                setStyle({ fill: event.currentTarget.checked ? (styledKind === "freetext" ? "#ffffff" : style.color) : null })}
             />
-            Fill
+            {styledKind === "freetext" ? "Whiteout" : "Fill"}
             {#if style.fill !== null}
               <input
                 type="color"
@@ -687,6 +757,48 @@
     align-items: center;
     gap: 5px;
     color: var(--text-muted);
+  }
+
+  .style-select {
+    height: 24px;
+    padding: 0 4px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 12px;
+  }
+
+  .style-group {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  .style-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: var(--bg);
+    color: var(--text-muted);
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .style-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
+
+  .style-btn.on {
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: bold;
   }
 
   /* ------------------------------------------------ Liquid Glass (macOS) */

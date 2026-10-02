@@ -120,6 +120,7 @@
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
           class="row"
+          class:holding={reorder.pending === index && reorder.from === null}
           class:dragging={reorder.from === index}
           class:drop-before={reorder.to === index && reorder.from !== null && reorder.from > index}
           class:drop-after={reorder.to === index && reorder.from !== null && reorder.from < index}
@@ -255,6 +256,12 @@
 
   .row:hover {
     background: var(--bg-hover);
+  }
+
+  .row.holding {
+    background: var(--bg-hover);
+    box-shadow: 0 0 0 1px var(--accent);
+    cursor: grabbing;
   }
 
   :global([data-glass]) .row:hover {

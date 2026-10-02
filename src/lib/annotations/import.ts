@@ -155,6 +155,30 @@ function fontSizeOf(dict: PDFDict, fallback: number): number {
   return Number.isFinite(size) && size > 0 ? size : fallback;
 }
 
+function fontPropsOf(dict: PDFDict): { fontFamily: "Helvetica" | "Times" | "Courier"; bold: boolean; italic: boolean } {
+  const da = lookupText(dict, "DA") ?? "";
+  const m = /\/([^\s]+)\s+[\d.]+\s+Tf/.exec(da);
+  const tag = m ? m[1].toLowerCase() : "";
+  let fontFamily: "Helvetica" | "Times" | "Courier" = "Helvetica";
+  let bold = false;
+  let italic = false;
+
+  if (tag.includes("time") || tag.startsWith("ti")) {
+    fontFamily = "Times";
+    if (tag.includes("bold") || tag.includes("bo") || tag.includes("bi")) bold = true;
+    if (tag.includes("italic") || tag.includes("it") || tag.includes("bi")) italic = true;
+  } else if (tag.includes("cour") || tag.startsWith("co")) {
+    fontFamily = "Courier";
+    if (tag.includes("bold") || tag.includes("bo")) bold = true;
+    if (tag.includes("oblique") || tag.includes("ob") || tag.includes("it")) italic = true;
+  } else {
+    fontFamily = "Helvetica";
+    if (tag.includes("bold") || tag.includes("bo")) bold = true;
+    if (tag.includes("oblique") || tag.includes("ob") || tag.includes("it")) italic = true;
+  }
+  return { fontFamily, bold, italic };
+}
+
 /** The fill (`rg`, `g`) or stroke (`RG`, `G`) colour a `/DA` string sets. */
 function daColor(da: string, stroke: boolean): string | null {
   const [rgbOp, grayOp] = stroke ? ["RG", "G"] : ["rg", "g"];
@@ -284,6 +308,8 @@ function toAnnot(dict: PDFDict, subtype: string, pageId: string, objectNumber: n
       const color = daColor(da, false) ?? base.color;
       const background = colorOf(dict, "C", null);
       const borderColor = daColor(da, true);
+      const { fontFamily, bold, italic } = fontPropsOf(dict);
+      const padding = lookupNumber(dict, "VrushPadding") ?? undefined;
       return {
         ...base,
         kind: "freetext",
@@ -291,12 +317,16 @@ function toAnnot(dict: PDFDict, subtype: string, pageId: string, objectNumber: n
         rect,
         text: base.contents,
         fontSize: fontSizeOf(dict, 12),
+        fontFamily,
+        bold,
+        italic,
         align: q === 1 ? "center" : q === 2 ? "right" : "left",
         // Earlier builds of this app wrote the text colour into `/C`. Text on a
         // background of its own colour cannot be read, so that means none.
         bgColor: background && background !== color ? background : null,
         borderColor,
         borderWidth: borderColor ? borderWidth(dict, 1) : 0,
+        ...(padding !== undefined ? { padding } : {}),
       };
     }
 

@@ -62,8 +62,14 @@ export function createLineShape(
   return { ...baseOf(pageId, style), kind, from, to, width: style.width };
 }
 
-/** Minimum usable FreeText box, for a click rather than a drag. */
-const MIN_FREETEXT = { w: 160, h: 40 };
+/**
+ * Rect for a FreeText placed by a single click: compact height sized to
+ * the font size, anchored at the click point.
+ */
+export function freeTextRectAt(point: Point, fontSize = 12, width = 160): Rect {
+  const height = Math.max(18, Math.round(fontSize * 1.5));
+  return { x: point.x, y: point.y - height, w: width, h: height };
+}
 
 export function createFreeText(pageId: string, rect: Rect, style: AnnotStyle): FreeTextAnnot {
   return {
@@ -72,15 +78,19 @@ export function createFreeText(pageId: string, rect: Rect, style: AnnotStyle): F
     rect: {
       x: rect.x,
       y: rect.y,
-      w: Math.max(rect.w, MIN_FREETEXT.w),
-      h: Math.max(rect.h, MIN_FREETEXT.h),
+      w: Math.max(rect.w, 4),
+      h: Math.max(rect.h, 4),
     },
     text: "",
     fontSize: style.fontSize,
-    align: "left",
-    bgColor: null,
-    borderColor: style.color,
-    borderWidth: 1,
+    fontFamily: style.fontFamily ?? "Helvetica",
+    bold: style.bold ?? false,
+    italic: style.italic ?? false,
+    align: style.align ?? "left",
+    bgColor: style.fill ?? null,
+    borderColor: style.width > 0 ? style.color : null,
+    borderWidth: style.width > 0 ? style.width : 0,
+    padding: style.padding ?? 2,
   };
 }
 

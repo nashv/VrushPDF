@@ -20,7 +20,7 @@ import {
   type PDFPage,
 } from "pdf-lib";
 
-import { buildAppearance, hexToRgb, type Appearance } from "./appearance";
+import { buildAppearance, getFontTag, hexToRgb, type Appearance } from "./appearance";
 import {
   annotBounds,
   isBoxShape,
@@ -61,8 +61,32 @@ export interface ImageSource {
 export interface WriteContext {
   doc: PDFDocument;
   font: PDFFont;
+  fonts: Map<string, PDFFont>;
   /** Embedded image refs by image id. */
   images: Map<string, PDFRef>;
+}
+
+function fontForTag(doc: PDFDocument, tag: string, fontCache: Map<string, PDFFont>): PDFFont {
+  const cached = fontCache.get(tag);
+  if (cached) return cached;
+  let fontName: StandardFonts = StandardFonts.Helvetica;
+  switch (tag) {
+    case "Helv": fontName = StandardFonts.Helvetica; break;
+    case "HeBo": fontName = StandardFonts.HelveticaBold; break;
+    case "HeOb": fontName = StandardFonts.HelveticaOblique; break;
+    case "HeBO": fontName = StandardFonts.HelveticaBoldOblique; break;
+    case "Times": fontName = StandardFonts.TimesRoman; break;
+    case "TiBo": fontName = StandardFonts.TimesRomanBold; break;
+    case "TiIt": fontName = StandardFonts.TimesRomanItalic; break;
+    case "TiBI": fontName = StandardFonts.TimesRomanBoldItalic; break;
+    case "Cour": fontName = StandardFonts.Courier; break;
+    case "CoBo": fontName = StandardFonts.CourierBold; break;
+    case "CoOb": fontName = StandardFonts.CourierOblique; break;
+    case "CoBO": fontName = StandardFonts.CourierBoldOblique; break;
+  }
+  const font = doc.embedStandardFont(fontName);
+  fontCache.set(tag, font);
+  return font;
 }
 
 /**
@@ -74,7 +98,16 @@ export async function prepareWrite(
   annots: Annot[],
   resolveImage: (id: string) => ImageSource | null,
 ): Promise<WriteContext> {
-  const font = doc.embedStandardFont(StandardFonts.Helvetica);
+  const fonts = new Map<string, PDFFont>();
+  const font = fontForTag(doc, "Helv", fonts);
+
+  for (const a of annots) {
+    if (isFreeText(a)) {
+      const tag = getFontTag(a.fontFamily, a.bold, a.italic);
+      fontForTag(doc, tag, fonts);
+    }
+  }
+
   const images = new Map<string, PDFRef>();
 
   const wanted = new Set(annots.filter(isStamp).map((a) => a.imageId));
@@ -88,7 +121,7 @@ export async function prepareWrite(
     images.set(id, embedded.ref);
   }
 
-  return { doc, font, images };
+  return { doc, font, fonts, images };
 }
 
 /** `D:YYYYMMDDHHmmSS+HH'mm'` as required for PDF date strings. */
@@ -124,8 +157,13 @@ const literal = (v: Record<string, unknown> | unknown[]) => v as ObjLiteral;
 function registerAppearance(ctx: WriteContext, ap: Appearance, imageRef?: PDFRef): PDFRef {
   const resources: Record<string, unknown> = {};
 
-  if (ap.needs.font) {
-    resources.Font = ctx.doc.context.obj({ Helv: ctx.font.ref });
+  if (ap.needs.font || ap.needs.fontTag) {
+    const fontDict: Record<string, PDFRef> = { Helv: ctx.font.ref };
+    if (ap.needs.fontTag) {
+      const font = ctx.fonts.get(ap.needs.fontTag) ?? ctx.font;
+      fontDict[ap.needs.fontTag] = font.ref;
+    }
+    resources.Font = ctx.doc.context.obj(literal(fontDict));
   }
   if (ap.needs.extGState) {
     const states: Record<string, unknown> = {};
@@ -184,15 +222,17 @@ function geometryEntries(annot: Annot): Record<string, unknown> {
   if (isFreeText(annot)) {
     const [r, g, b] = hexToRgb(annot.color);
     const stroke = annot.borderColor ? ` ${hexToRgb(annot.borderColor).join(" ")} RG` : "";
+    const fontTag = getFontTag(annot.fontFamily, annot.bold, annot.italic);
     return {
       // A FreeText's `/C` is its background, and an empty one means none; it
       // must not be the text colour, which the importer would read back as a
       // solid fill. Text and border colours go in `/DA` instead, which is also
       // what viewers use if they regenerate the appearance themselves.
       C: annot.bgColor ? hexToRgb(annot.bgColor) : [],
-      DA: PDFString.of(`/Helv ${annot.fontSize} Tf ${r} ${g} ${b} rg${stroke}`),
+      DA: PDFString.of(`/${fontTag} ${annot.fontSize} Tf ${r} ${g} ${b} rg${stroke}`),
       BS: { W: annot.borderColor ? annot.borderWidth : 0 },
       Q: annot.align === "center" ? 1 : annot.align === "right" ? 2 : 0,
+      ...(annot.padding !== undefined ? { VrushPadding: annot.padding } : {}),
     };
   }
 
@@ -227,9 +267,12 @@ export function writeAnnot(ctx: WriteContext, annot: Annot, page: PDFPage): PDFR
   const imageRef = isStamp(annot) ? ctx.images.get(annot.imageId) : undefined;
   if (isStamp(annot) && !imageRef) return null;
 
+  const fontTag = isFreeText(annot) ? getFontTag(annot.fontFamily, annot.bold, annot.italic) : "Helv";
+  const usedFont = ctx.fonts.get(fontTag) ?? ctx.font;
+
   const appearance = buildAppearance(annot, {
-    measure: (text, size) => safeWidth(ctx.font, text, size),
-    encode: (text) => ctx.font.encodeText(sanitize(text)).toString(),
+    measure: (text, size) => safeWidth(usedFont, text, size),
+    encode: (text) => usedFont.encodeText(sanitize(text)).toString(),
     imageName: "Im0",
   });
 

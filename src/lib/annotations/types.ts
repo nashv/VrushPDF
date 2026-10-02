@@ -56,6 +56,8 @@ export interface PageEntry {
 export const TEXT_MARKUP_KINDS = ["highlight", "underline", "strikeout", "squiggly"] as const;
 export const SHAPE_KINDS = ["square", "circle", "line", "arrow"] as const;
 
+export type FontFamily = "Helvetica" | "Times" | "Courier";
+
 export type TextMarkupKind = (typeof TEXT_MARKUP_KINDS)[number];
 export type ShapeKind = (typeof SHAPE_KINDS)[number];
 export type AnnotKind = TextMarkupKind | ShapeKind | "ink" | "freetext" | "note" | "stamp";
@@ -124,12 +126,17 @@ export interface FreeTextAnnot extends AnnotBase {
    */
   text: string;
   fontSize: number;
+  fontFamily?: FontFamily;
+  bold?: boolean;
+  italic?: boolean;
   align: "left" | "center" | "right";
   /** Box background, or `null` for transparent. */
   bgColor: string | null;
   /** Box border, or `null` for none. */
   borderColor: string | null;
   borderWidth: number;
+  /** Inner padding in points (defaults to 2pt). */
+  padding?: number;
 }
 
 export interface NoteAnnot extends AnnotBase {

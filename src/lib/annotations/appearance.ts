@@ -65,10 +65,32 @@ function multiply(m: Matrix, n: Matrix): Matrix {
 export interface AppearanceNeeds {
   /** `/ExtGState` entries, keyed by resource name. */
   extGState?: Record<string, Record<string, string | number>>;
-  /** True when the stream references `/Helv` in `/Font`. */
+  /** Font tag name when the stream references a font in `/Font`. */
+  fontTag?: string;
+  /** True when the stream references standard `/Helv` in `/Font`. */
   font?: boolean;
   /** `/XObject` image resource name, when the stream draws an image. */
   image?: string;
+}
+
+export function getFontTag(fontFamily?: string, bold?: boolean, italic?: boolean): string {
+  const family = fontFamily || "Helvetica";
+  if (family === "Times") {
+    if (bold && italic) return "TiBI";
+    if (bold) return "TiBo";
+    if (italic) return "TiIt";
+    return "Times";
+  }
+  if (family === "Courier") {
+    if (bold && italic) return "CoBO";
+    if (bold) return "CoBo";
+    if (italic) return "CoOb";
+    return "Cour";
+  }
+  if (bold && italic) return "HeBO";
+  if (bold) return "HeBo";
+  if (italic) return "HeOb";
+  return "Helv";
 }
 
 export interface Appearance {
@@ -328,6 +350,7 @@ function freeTextAppearance(
 
   const ops: string[] = [];
   const bw = a.borderColor ? a.borderWidth : 0;
+  const padding = a.padding ?? FREETEXT_PADDING;
 
   if (a.bgColor) {
     ops.push(fillColor(a.bgColor));
@@ -342,20 +365,21 @@ function freeTextAppearance(
     );
   }
 
-  const inner = a.rect.w - (FREETEXT_PADDING + bw) * 2;
+  const inner = a.rect.w - (padding + bw) * 2;
   const lines = wrapText(a.text, Math.max(inner, 1), a.fontSize, measure);
   const leading = a.fontSize * 1.18;
+  const fontTag = getFontTag(a.fontFamily, a.bold, a.italic);
 
   if (lines.length > 0 && a.text.length > 0) {
     ops.push("q");
     // Clip to the box so overflowing text is hidden rather than bleeding out.
     ops.push(`${num(a.rect.x)} ${num(a.rect.y)} ${num(a.rect.w)} ${num(a.rect.h)} re`, "W", "n");
-    ops.push("BT", `/Helv ${num(a.fontSize)} Tf`, fillColor(a.color));
+    ops.push("BT", `/${fontTag} ${num(a.fontSize)} Tf`, fillColor(a.color));
 
     // First baseline sits one ascent below the inner top edge. Each line gets an
     // absolute `Tm` so per-line alignment can shift x freely.
-    const firstBaseline = a.rect.y + a.rect.h - (FREETEXT_PADDING + bw) - a.fontSize * 0.85;
-    const left = a.rect.x + FREETEXT_PADDING + bw;
+    const firstBaseline = a.rect.y + a.rect.h - (padding + bw) - a.fontSize * 0.85;
+    const left = a.rect.x + padding + bw;
 
     lines.forEach((line, i) => {
       if (line.length === 0) return;
@@ -372,7 +396,7 @@ function freeTextAppearance(
     ops.push("ET", "Q");
   }
 
-  return { ops: ops.join("\n"), bbox: a.rect, needs: { font: true } };
+  return { ops: ops.join("\n"), bbox: a.rect, needs: { font: true, fontTag } };
 }
 
 /**

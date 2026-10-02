@@ -36,7 +36,8 @@ export function createReorder(options: ReorderOptions) {
   /** The item it would land on. */
   let to = $state<number | null>(null);
 
-  let pending: number | null = null;
+  let pending = $state<number | null>(null);
+  let pointerPos = $state<{ x: number; y: number } | null>(null);
   let origin = { x: 0, y: 0 };
   let frame = 0;
   /** When the last real drag ended, so the click it produces can be ignored. */
@@ -83,9 +84,11 @@ export function createReorder(options: ReorderOptions) {
     pending = null;
     from = null;
     to = null;
+    pointerPos = null;
   }
 
   function move(event: PointerEvent) {
+    pointerPos = { x: event.clientX, y: event.clientY };
     if (pending === null) return;
 
     if (from === null) {
@@ -134,6 +137,12 @@ export function createReorder(options: ReorderOptions) {
     get to() {
       return to;
     },
+    get pending() {
+      return pending;
+    },
+    get pointerPos() {
+      return pointerPos;
+    },
     /** True once a press has become a drag. */
     get active() {
       return from !== null;
@@ -158,6 +167,7 @@ export function createReorder(options: ReorderOptions) {
 
       pending = index;
       origin = { x: event.clientX, y: event.clientY };
+      pointerPos = { x: event.clientX, y: event.clientY };
 
       /*
        * Tracked on the window rather than through `setPointerCapture`: capture

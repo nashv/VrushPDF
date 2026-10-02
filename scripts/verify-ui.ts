@@ -590,6 +590,34 @@ async function main() {
     );
     check("dragging with the rectangle tool creates a shape", () => assert.ok(rects > 0));
 
+    // --- text box by dragging on the page
+    await cdp.eval("document.querySelector('[title^=\"Text box\"]').click()");
+    await drag(
+      cdp,
+      { x: box.x + box.w * 0.50, y: atY(0.78) },
+      { x: box.x + box.w * 0.85, y: atY(0.92) },
+    );
+    const textBoxes = await waitFor(
+      "text box annotation",
+      () => cdp.eval<number>("document.querySelectorAll('.widgets .freetext').length"),
+      (n) => n > 0,
+    );
+    check("dragging with the text box tool creates a text box", () => assert.ok(textBoxes > 0));
+    // Type into the new text box
+    await cdp.eval(`(() => {
+      const ta = document.querySelector('.widgets .freetext textarea');
+      if (ta) {
+        ta.value = "Hello World";
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    })()`);
+    await sleep(200);
+    // Switch to select tool, then back to rectangle for style controls
+    await cdp.eval("document.querySelector('[title^=\"Select\"]').click()");
+    await sleep(200);
+    await cdp.eval("document.querySelector('[title^=\"Rectangle\"]').click()");
+    await sleep(200);
+
     const listed = await cdp.eval<number>(`(() => {
       document.querySelector('[title="Annotations"]').click();
       return 0;
@@ -693,6 +721,9 @@ async function main() {
     );
     check("rectangle was written as a real /Square annotation", () =>
       assert.ok(subtypes.includes("Square"), `got: ${subtypes.join(", ")}`),
+    );
+    check("text box was written as a real /FreeText annotation", () =>
+      assert.ok(subtypes.includes("FreeText"), `got: ${subtypes.join(", ")}`),
     );
 
     // --- the app reopens what it wrote, so the marks come back editable

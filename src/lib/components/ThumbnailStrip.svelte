@@ -209,7 +209,7 @@
     </div>
   {/if}
 
-  <div class="grid scroll" bind:this={grid}>
+  <div class="grid scroll" class:reordering={reorder.active} bind:this={grid}>
     {#each pages as entry, index (entry.id)}
       {@const thumb = thumbOf(entry)}
       {@const dims = edits.displayDims(entry)}
@@ -222,6 +222,7 @@
         class="tile"
         class:current={index === view.currentPage && picked.size === 0}
         class:picked={picked.has(entry.id)}
+        class:holding={reorder.pending === index && reorder.from === null}
         class:dragging={reorder.from === index}
         class:drop-before={reorder.to === index && reorder.from !== null && reorder.from > index}
         class:drop-after={reorder.to === index && reorder.from !== null && reorder.from < index}
@@ -244,6 +245,21 @@
       </div>
     {/each}
   </div>
+
+  {#if reorder.active && reorder.from !== null && reorder.pointerPos}
+    {@const draggedEntry = pages[reorder.from]}
+    {@const draggedThumb = draggedEntry ? thumbOf(draggedEntry) : null}
+    <div
+      class="drag-ghost"
+      style:left="{reorder.pointerPos.x + 12}px"
+      style:top="{reorder.pointerPos.y + 12}px"
+    >
+      {#if draggedThumb}
+        <img src={draggedThumb.url} alt="" class="ghost-thumb" />
+      {/if}
+      <span class="ghost-label">Page {reorder.from + 1}</span>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -293,12 +309,23 @@
     min-height: 0;
   }
 
+  .grid.reordering {
+    user-select: none;
+    cursor: grabbing;
+  }
+
+  .grid.reordering .tile,
+  .grid.reordering .shot {
+    cursor: grabbing;
+  }
+
   .tile {
     position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 3px;
+    transition: transform 0.12s ease;
   }
 
   .shot {
@@ -310,10 +337,26 @@
     border-radius: 3px;
     background: #ffffff;
     box-shadow: var(--shadow-1);
+    transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+  }
+
+  .tile.holding {
+    transform: scale(0.96);
+  }
+
+  .tile.holding .shot {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent), var(--shadow-2);
+    cursor: grabbing;
   }
 
   .tile.dragging {
-    opacity: 0.4;
+    opacity: 0.35;
+    transform: scale(0.94);
+  }
+
+  .tile.dragging .shot {
+    border: 1.5px dashed var(--accent);
   }
 
   .shot img {
@@ -338,12 +381,55 @@
   }
 
   /* Drop indicator shows which side the dragged page will land on. */
-  .tile.drop-before .shot {
-    box-shadow: -3px 0 0 var(--accent);
+  .tile.drop-before::before,
+  .tile.drop-after::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 18px;
+    width: 4px;
+    background: var(--accent);
+    border-radius: 2px;
+    z-index: 10;
+    box-shadow: 0 0 8px rgb(37 99 235 / 70%);
+    pointer-events: none;
   }
 
-  .tile.drop-after .shot {
-    box-shadow: 3px 0 0 var(--accent);
+  .tile.drop-before::before {
+    left: -7px;
+  }
+
+  .tile.drop-after::after {
+    right: -7px;
+  }
+
+  .drag-ghost {
+    position: fixed;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px 4px 4px;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    background: var(--bg-raised, #ffffff);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 25%), 0 0 0 1px rgb(37 99 235 / 20%);
+    pointer-events: none;
+    transform: translate3d(0, 0, 0);
+  }
+
+  .ghost-thumb {
+    width: 24px;
+    height: 32px;
+    object-fit: cover;
+    border-radius: 2px;
+    border: 1px solid var(--border);
+  }
+
+  .ghost-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
   }
 
   .no {

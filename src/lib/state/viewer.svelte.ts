@@ -2,7 +2,7 @@
  * View state, in two halves: `ViewState` belongs to a document (zoom, page,
  * scroll) and is created per tab; `viewer` is app-wide (tool, styles, panels).
  */
-import type { AnnotKind } from "$lib/annotations/types";
+import type { AnnotKind, FontFamily } from "$lib/annotations/types";
 
 export type Tool =
   | "select"
@@ -26,6 +26,11 @@ export interface AnnotStyle {
   /** Interior colour for closed shapes; `null` means unfilled. */
   fill: string | null;
   fontSize: number;
+  fontFamily?: FontFamily;
+  bold?: boolean;
+  italic?: boolean;
+  align?: "left" | "center" | "right";
+  padding?: number;
 }
 
 const STYLE_KEY = "vrushpdf.styles.v1";
@@ -95,7 +100,18 @@ function defaultStyles(): Record<AnnotKind, AnnotStyle> {
     circle: { ...base },
     line: { ...base },
     arrow: { ...base },
-    freetext: { ...base, color: "#111827", fontSize: 12, width: 0 },
+    freetext: {
+      ...base,
+      color: "#111827",
+      fontSize: 12,
+      fontFamily: "Helvetica",
+      bold: false,
+      italic: false,
+      align: "left",
+      fill: null,
+      width: 0,
+      padding: 2,
+    },
     note: { ...base, color: "#fbbf24" },
     stamp: { ...base, width: 0 },
   };

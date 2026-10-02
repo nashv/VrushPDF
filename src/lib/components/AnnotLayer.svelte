@@ -233,10 +233,23 @@
             y={annot.rect.y}
             width={annot.rect.w}
             height={annot.rect.h}
-            fill={annot.bgColor ?? "none"}
-            stroke={annot.borderColor ?? "none"}
-            stroke-width={annot.borderColor ? annot.borderWidth : 0}
+            fill={annot.bgColor ?? (annot === preview ? "rgb(37 99 235 / 12%)" : "none")}
+            stroke={annot.borderColor ?? (annot === preview ? "var(--accent)" : "none")}
+            stroke-width={annot.borderColor ? annot.borderWidth : (annot === preview ? 1.5 : 0)}
+            stroke-dasharray={annot === preview && !annot.borderColor ? "4 3" : undefined}
           />
+          {#if annot === preview}
+            <!-- Text cursor indicator inside the dragging text box preview -->
+            <line
+              x1={annot.rect.x + (annot.padding ?? 2) + 2}
+              y1={annot.rect.y + (annot.padding ?? 2) + 2}
+              x2={annot.rect.x + (annot.padding ?? 2) + 2}
+              y2={annot.rect.y + (annot.padding ?? 2) + 2 + Math.min(annot.fontSize, Math.max(annot.rect.h - 6, 8))}
+              stroke="var(--accent)"
+              stroke-width="1.8"
+              stroke-linecap="round"
+            />
+          {/if}
         {:else if isStamp(annot)}
           {@const url = stampUrl(annot.imageId)}
           {#if url}

@@ -26,6 +26,7 @@
     createNote,
     createStamp,
     createTextMarkup,
+    freeTextRectAt,
     stampRectAt,
     stampRectFromDrag,
   } from "$lib/annotations/create";
@@ -40,8 +41,10 @@
     setFreeTextText,
     translateAnnot,
     type Annot,
+    type FreeTextAnnot,
     type PageEntry,
     type Point,
+    type Rect,
     type TextMarkupKind,
   } from "$lib/annotations/types";
   import {
@@ -115,16 +118,6 @@
   const tool = $derived(viewer.tool);
   const isMarkupTool = $derived(MARKUP_TOOLS.includes(tool));
   const passthrough = $derived(tool === "text" || isMarkupTool);
-
-  const cursor = $derived(
-    tool === "pan"
-      ? "grab"
-      : tool === "select"
-        ? "default"
-        : tool === "eraser"
-          ? "cell"
-          : "crosshair",
-  );
 
   // ------------------------------------------------------------ page loading
 
@@ -225,6 +218,19 @@
     | { kind: "pan"; lastClient: Point };
 
   let gesture = $state.raw<Gesture | null>(null);
+  let hoveredAnnotId = $state<string | null>(null);
+
+  const cursor = $derived(
+    gesture?.kind === "move" || gesture?.kind === "pan"
+      ? "grabbing"
+      : tool === "pan"
+        ? "grab"
+        : tool === "select"
+          ? (hoveredAnnotId ? "grab" : "default")
+          : tool === "eraser"
+            ? "cell"
+            : "crosshair",
+  );
 
   const slop = $derived(viewport ? HIT_SLOP_PX * pdfPerCssPixel(viewport) : 1);
 
@@ -354,7 +360,15 @@
 
   function onSurfaceMove(event: PointerEvent) {
     const g = gesture;
-    if (!g) return;
+    const p = pointOf(event);
+
+    if (!g) {
+      if (tool === "select" && p) {
+        const target = pick(annots, p, slop);
+        hoveredAnnotId = target?.id ?? null;
+      }
+      return;
+    }
 
     if (g.kind === "pan") {
       onPan?.(g.lastClient.x - event.clientX, g.lastClient.y - event.clientY);
@@ -362,7 +376,6 @@
       return;
     }
 
-    const p = pointOf(event);
     if (!p) return;
 
     switch (g.kind) {
@@ -436,8 +449,12 @@
           edits.select(annot.id);
         }
       } else if (g.kind === "box" && p && tool === "freetext") {
-        // A click makes a default-sized box.
-        const annot = createFreeText(entry.id, { x: p.x, y: p.y - 40, w: 0, h: 0 }, viewer.style);
+        // A click makes a default-sized box sized for the font.
+        const annot = createFreeText(
+          entry.id,
+          freeTextRectAt(p, viewer.style.fontSize),
+          viewer.style,
+        );
         edits.annots.push(annot);
         edits.select(annot.id);
         editingId = annot.id;
@@ -454,6 +471,7 @@
   function onSurfaceCancel() {
     if (!gesture) return;
     gesture = null;
+    hoveredAnnotId = null;
     edits.cancel();
   }
 
@@ -534,6 +552,54 @@
     edits.update(annot.id, () => setFreeTextText(annot, text), "Edit text");
   }
 
+  function onFreeTextResize(annot: Annot, newRect: Rect) {
+    if (!isFreeText(annot)) return;
+    edits.update(annot.id, { rect: newRect }, "Auto-size text box");
+  }
+
+  function onFreeTextTab(annot: Annot, delta: number) {
+    if (!isFreeText(annot)) return;
+    const pageAnnots = edits.annots.filter((a): a is FreeTextAnnot => a.pageId === entry.id && isFreeText(a));
+    if (pageAnnots.length <= 1) return;
+    pageAnnots.sort((a, b) => {
+      const topA = a.rect.y + a.rect.h;
+      const topB = b.rect.y + b.rect.h;
+      if (Math.abs(topA - topB) > 5) return topB - topA;
+      return a.rect.x - b.rect.x;
+    });
+    const idx = pageAnnots.findIndex((a) => a.id === annot.id);
+    if (idx === -1) return;
+    const nextIdx = (idx + delta + pageAnnots.length) % pageAnnots.length;
+    const nextAnnot = pageAnnots[nextIdx];
+    edits.select(nextAnnot.id);
+    editingId = nextAnnot.id;
+  }
+
+  function autoFitFreeText(annot: Annot) {
+    if (!isFreeText(annot)) return;
+    const text = annot.text || "";
+    if (text.length === 0) return;
+    const lines = text.split("\n");
+    const maxLineLen = Math.max(...lines.map((l) => l.length), 1);
+    const avgCharW =
+      annot.fontFamily === "Courier"
+        ? annot.fontSize * 0.6
+        : annot.fontFamily === "Times"
+          ? annot.fontSize * 0.5
+          : annot.fontSize * 0.55;
+    const padding = (annot.padding ?? 2) + (annot.borderColor ? annot.borderWidth : 0);
+    const fitW = Math.max(30, Math.ceil(maxLineLen * avgCharW + padding * 2 + 12));
+    const leading = annot.fontSize * 1.25;
+    const fitH = Math.max(18, Math.ceil(lines.length * leading + padding * 2));
+    const newY = annot.rect.y + annot.rect.h - fitH;
+    edits.update(annot.id, { rect: { x: annot.rect.x, y: newY, w: fitW, h: fitH } }, "Auto-fit text box");
+  }
+
+  function onHandleDblClick(event: MouseEvent, annot: Annot, _handle: HandleId) {
+    event.stopPropagation();
+    autoFitFreeText(annot);
+  }
+
   function onFreeTextCommit(annot: Annot) {
     if (editingId !== annot.id) return;
     editingId = null;
@@ -575,10 +641,14 @@
         {viewport}
         selectedId={edits.selectedId}
         {editingId}
+        movingId={gesture?.kind === "move" ? gesture.id : null}
         interactive={tool === "select"}
         {onHandleDown}
+        {onHandleDblClick}
         {onNoteDown}
         {onFreeTextInput}
+        {onFreeTextResize}
+        {onFreeTextTab}
         {onFreeTextCommit}
       />
     {/if}
@@ -598,6 +668,9 @@
       onpointermove={onSurfaceMove}
       onpointerup={onSurfaceUp}
       onpointercancel={onSurfaceCancel}
+      onpointerleave={() => {
+        hoveredAnnotId = null;
+      }}
       ondblclick={onSurfaceDoubleClick}
     ></div>
 

@@ -39,6 +39,7 @@ import {
 } from "../src/lib/content/tokenizer.ts";
 import { shownText } from "../src/lib/content/text.ts";
 import { detectBlocks, type TextRun } from "../src/lib/content/blocks.ts";
+import { createFreeText, freeTextRectAt } from "../src/lib/annotations/create.ts";
 import { importAnnots } from "../src/lib/annotations/import.ts";
 import type { ImageSource } from "../src/lib/annotations/write.ts";
 import {
@@ -1016,6 +1017,79 @@ async function main() {
   check("high compression preset optimizes form document successfully", () => {
     assert.ok(cleanOptimized.bytes.length > 0);
     assert.ok(cleanOptimized.objectsDiscarded > 0);
+  });
+
+  // ---------------------------------------------------- freetext sizing checks
+  console.log("\nFreeText Sizing…");
+  const defaultClickRect = freeTextRectAt({ x: 100, y: 200 }, 12);
+  check("click placement produces a compact height proportional to font size", () => {
+    assert.equal(defaultClickRect.w, 160);
+    assert.equal(defaultClickRect.h, 18);
+    assert.equal(defaultClickRect.x, 100);
+    assert.equal(defaultClickRect.y, 200 - 18);
+  });
+
+  const dummyStyle = {
+    color: "#000000",
+    opacity: 1,
+    width: 1,
+    fontSize: 12,
+    fill: null,
+  };
+
+  const smallDragged = createFreeText("p1", { x: 50, y: 50, w: 60, h: 14 }, dummyStyle);
+  check("allows small dragged text box heights without forcing 40pt minimum", () => {
+    assert.equal(smallDragged.rect.w, 60);
+    assert.equal(smallDragged.rect.h, 14);
+  });
+
+  const tinyDragged = createFreeText("p1", { x: 50, y: 50, w: 2, h: 2 }, dummyStyle);
+  check("clamps below minimum safety margin of 4pt", () => {
+    assert.equal(tinyDragged.rect.w, 4);
+    assert.equal(tinyDragged.rect.h, 4);
+  });
+
+  // ---------------------------------------------------- typography & whiteout roundtrip checks
+  console.log("\nFreeText Typography & Whiteout Round-Trip…");
+  const typographyAnnot = createFreeText(
+    basePlan[0].id,
+    { x: 72, y: 500, w: 200, h: 30 },
+    {
+      color: "#000000",
+      opacity: 1,
+      width: 0,
+      fontSize: 14,
+      fill: "#ffffff",
+      fontFamily: "Times",
+      bold: true,
+      italic: true,
+      padding: 6,
+    },
+  );
+  typographyAnnot.text = "Whiteout Heading Text";
+
+  const customFtSaved = await buildSavedPdf({
+    pages: basePlan,
+    annots: [typographyAnnot],
+    mainDocId: MAIN,
+    getSource: sources(baseBytes, new Set()),
+    resolveImage,
+  });
+
+  const { annots: readBackFt } = await importAnnots(customFtSaved.bytes, basePlan);
+  check("round-trips FreeText font family, bold, italic, padding, and whiteout bgColor", () => {
+    assert.equal(readBackFt.length, 1);
+    const ft = readBackFt[0];
+    assert.equal(ft.kind, "freetext");
+    if (ft.kind === "freetext") {
+      assert.equal(ft.text, "Whiteout Heading Text");
+      assert.equal(ft.fontSize, 14);
+      assert.equal(ft.fontFamily, "Times");
+      assert.equal(ft.bold, true);
+      assert.equal(ft.italic, true);
+      assert.equal(ft.padding, 6);
+      assert.equal(ft.bgColor, "#ffffff");
+    }
   });
 
   console.log(

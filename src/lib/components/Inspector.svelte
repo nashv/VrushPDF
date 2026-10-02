@@ -58,6 +58,26 @@
     }
   }
 
+  function autoFit(a: Annot) {
+    if (!isFreeText(a)) return;
+    const text = a.text || "";
+    if (text.length === 0) return;
+    const lines = text.split("\n");
+    const maxLineLen = Math.max(...lines.map((l) => l.length), 1);
+    const avgCharW =
+      a.fontFamily === "Courier"
+        ? a.fontSize * 0.6
+        : a.fontFamily === "Times"
+          ? a.fontSize * 0.5
+          : a.fontSize * 0.55;
+    const padding = (a.padding ?? 2) + (a.borderColor ? a.borderWidth : 0);
+    const fitW = Math.max(30, Math.ceil(maxLineLen * avgCharW + padding * 2 + 12));
+    const leading = a.fontSize * 1.25;
+    const fitH = Math.max(18, Math.ceil(lines.length * leading + padding * 2));
+    const newY = a.rect.y + a.rect.h - fitH;
+    edits.update(a.id, { rect: { x: a.rect.x, y: newY, w: fitW, h: fitH } }, "Auto-fit text box");
+  }
+
   const pageNumber = $derived(annot ? edits.pageIndexOf(annot.pageId) + 1 : 0);
 
   const formatted = $derived.by(() => {
@@ -101,6 +121,17 @@
           value={annot.text}
           oninput={(event) => setText(event.currentTarget.value)}
         ></textarea>
+      </section>
+      <section>
+        <button
+          type="button"
+          class="btn outlined"
+          style="width: 100%; justify-content: center; gap: 6px;"
+          onclick={() => autoFit(annot)}
+        >
+          <Icon name="cursor" size={13} />
+          Auto-fit box to text
+        </button>
       </section>
     {/if}
 
@@ -191,6 +222,42 @@
 
     {#if isFreeText(annot)}
       <section>
+        <span class="label">Font family</span>
+        <select
+          class="field"
+          value={annot.fontFamily ?? "Helvetica"}
+          aria-label="Font family"
+          onchange={(event) => patch({ fontFamily: event.currentTarget.value as any })}
+        >
+          <option value="Helvetica">Helvetica (Sans-Serif)</option>
+          <option value="Times">Times Roman (Serif)</option>
+          <option value="Courier">Courier (Monospace)</option>
+        </select>
+      </section>
+
+      <section>
+        <span class="label">Typographic style</span>
+        <div class="segmented" role="group" aria-label="Style">
+          <button
+            type="button"
+            class="seg"
+            class:on={annot.bold}
+            onclick={() => patch({ bold: !annot.bold })}
+          >
+            <strong>Bold</strong>
+          </button>
+          <button
+            type="button"
+            class="seg"
+            class:on={annot.italic}
+            onclick={() => patch({ italic: !annot.italic })}
+          >
+            <em>Italic</em>
+          </button>
+        </div>
+      </section>
+
+      <section>
         <span class="label" id="fontsize">Font size — {annot.fontSize}pt</span>
         <input
           type="range"
@@ -202,6 +269,20 @@
           oninput={(event) => patch({ fontSize: Number(event.currentTarget.value) } as Partial<Annot>)}
         />
       </section>
+
+      <section>
+        <span class="label" id="padding">Padding — {annot.padding ?? 2}pt</span>
+        <input
+          type="range"
+          min="0"
+          max="16"
+          step="1"
+          aria-labelledby="padding"
+          value={annot.padding ?? 2}
+          oninput={(event) => patch({ padding: Number(event.currentTarget.value) } as Partial<Annot>)}
+        />
+      </section>
+
       <section>
         <span class="label">Alignment</span>
         <div class="segmented" role="group" aria-label="Alignment">
@@ -216,15 +297,16 @@
           {/each}
         </div>
       </section>
+
       <section>
-        <span class="label">Background</span>
+        <span class="label">Background (Whiteout)</span>
         <span class="fill-row">
           <input
             type="checkbox"
             checked={annot.bgColor !== null}
             aria-label="Filled background"
             onchange={(event) =>
-              patch({ bgColor: event.currentTarget.checked ? "#fef9c3" : null } as Partial<Annot>)}
+              patch({ bgColor: event.currentTarget.checked ? "#ffffff" : null } as Partial<Annot>)}
           />
           {#if annot.bgColor !== null}
             <input
