@@ -105,12 +105,12 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ startsWith(matrix.platform, 'macos') && 'aarch64-apple-darwin' || '' }}
+          targets: ${{ matrix.label == 'macos-arm64' && 'aarch64-apple-darwin' || (matrix.label == 'macos-x64' && 'x86_64-apple-darwin' || '') }}
 
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: "./src-tauri -> target"
-          key: ${{ matrix.platform }}
+          key: ${{ matrix.label }}
 
       - name: Install frontend dependencies
         run: npm ci

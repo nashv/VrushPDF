@@ -109,14 +109,14 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          # Only the macOS jobs build for a named target.
-          targets: ${{ startsWith(matrix.platform, 'macos') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          # Install target corresponding to the runner matrix
+          targets: ${{ matrix.label == 'macos-arm64' && 'aarch64-apple-darwin' || (matrix.label == 'macos-x64' && 'x86_64-apple-darwin' || '') }}
 
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: "./src-tauri -> target"
-          # Otherwise the four jobs would fight over one cache key.
-          key: ${{ matrix.platform }}
+          # Unique cache key per matrix label to prevent ARM64 and x64 cache collisions
+          key: ${{ matrix.label }}
 
       # `npm ci` also runs the prepare script, which copies pdf.js's CMap tables
       # and standard fonts into static/ so the app works offline.

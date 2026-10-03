@@ -877,9 +877,24 @@ mod updater_tests {
     use super::*;
 
     #[test]
-    fn test_check_latest_release() {
-        let res = check_latest_release();
-        println!("Result: {:?}", res.is_ok());
-        assert!(res.is_ok());
+    fn test_parse_checksum_from_sums() {
+        let sample = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  VrushPDF_0.5.7_aarch64.dmg\n\
+                      a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e  VrushPDF_0.5.7_x64.dmg\n";
+        assert_eq!(
+            parse_checksum_from_sums(sample, "VrushPDF_0.5.7_aarch64.dmg"),
+            Some("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string())
+        );
+        assert_eq!(
+            parse_checksum_from_sums(sample, "VrushPDF_0.5.7_x64.dmg"),
+            Some("a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e".to_string())
+        );
+        assert_eq!(parse_checksum_from_sums(sample, "nonexistent.zip"), None);
+    }
+
+    #[test]
+    fn test_get_system_target() {
+        let target = get_system_target();
+        assert!(!target.os.is_empty());
+        assert!(!target.arch.is_empty());
     }
 }
