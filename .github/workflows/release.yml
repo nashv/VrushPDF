@@ -191,9 +191,11 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Create or update draft release
+      - name: Create or update release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUBLIC_REPO_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           ls -R dist
           cd dist
@@ -201,18 +203,37 @@ jobs:
           cd ..
           FILES=$(find dist -maxdepth 1 -type f | sort)
           TARGET_REPO="nashv/VrushPDF"
-          RELEASE_TOKEN="${{ secrets.PUBLIC_REPO_TOKEN || secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}"
-          export GH_TOKEN="$RELEASE_TOKEN"
+          AUTH_TOKEN="${PUBLIC_REPO_TOKEN:-${RELEASE_TOKEN:-$GITHUB_TOKEN}}"
+          export GH_TOKEN="$AUTH_TOKEN"
 
+          echo "Target repository: $TARGET_REPO"
+          echo "Tag: ${GITHUB_REF_NAME}"
+
+          PUBLISHED=0
           if gh release view "${GITHUB_REF_NAME}" --repo "$TARGET_REPO" >/dev/null 2>&1; then
-            gh release upload "${GITHUB_REF_NAME}" --repo "$TARGET_REPO" --clobber $FILES
-          elif gh release create "${GITHUB_REF_NAME}" \
-            --repo "$TARGET_REPO" \
-            --title "VrushPDF ${GITHUB_REF_NAME}" \
-            --notes 'Download the installer for your platform below. These builds are unsigned — see the README for how to get past Gatekeeper and SmartScreen.' \
-            $FILES 2>/dev/null; then
-            echo "Successfully published release ${GITHUB_REF_NAME} to $TARGET_REPO"
+            echo "Release ${GITHUB_REF_NAME} already exists in ${TARGET_REPO}. Uploading and updating assets..."
+            if gh release upload "${GITHUB_REF_NAME}" --repo "$TARGET_REPO" --clobber $FILES; then
+              PUBLISHED=1
+              echo "Successfully updated release assets in $TARGET_REPO"
+            else
+              echo "Warning: Failed to upload assets to $TARGET_REPO"
+            fi
           else
+            echo "Creating release ${GITHUB_REF_NAME} in ${TARGET_REPO}..."
+            if gh release create "${GITHUB_REF_NAME}" \
+              --repo "$TARGET_REPO" \
+              --title "VrushPDF ${GITHUB_REF_NAME}" \
+              --notes 'Download the installer for your platform below. These builds are unsigned — see the README for how to get past Gatekeeper and SmartScreen.' \
+              $FILES; then
+              PUBLISHED=1
+              echo "Successfully published release ${GITHUB_REF_NAME} to $TARGET_REPO"
+            else
+              echo "Warning: Failed to create release in $TARGET_REPO (check PUBLIC_REPO_TOKEN permissions)"
+            fi
+          fi
+
+          if [ "$PUBLISHED" -eq 0 ]; then
+            echo "::warning title=Public Release Publish Failed::Could not publish directly to $TARGET_REPO. Falling back to local repository ${GITHUB_REPOSITORY}."
             if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
               gh release upload "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --clobber $FILES
             else
