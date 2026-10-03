@@ -187,10 +187,11 @@ function stubSource(seeds: Record<string, string>, cliPath: string): string {
         case "settings_get": return { singleInstance: true, warnUnflattenedSignatures: true, autoUpdate: true };
         case "settings_set": return null;
         case "get_system_target": return { os: "macos", arch: "aarch64" };
-        case "check_latest_release": return JSON.stringify({ tag_name: "v0.5.7", assets: [] });
+        case "check_latest_release": return JSON.stringify({ tag_name: "v0.5.8", assets: [] });
         case "download_and_install_update": return null;
         case "install_update_payload": return null;
         case "relaunch_app": return null;
+        case "exit_app": return null;
         // A trial by default, so every earlier section runs with editing on
         // and the trial capsule is on screen. The license section changes it.
         case "license_status": return window.__license;

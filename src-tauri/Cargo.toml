@@ -1,6 +1,6 @@
 [package]
 name = "vrushpdf"
-version = "0.5.7"
+version = "0.5.8"
 description = "A desktop PDF viewer and annotation editor"
 authors = ["nashv"]
 license-file = "../LICENSE"
@@ -52,6 +52,9 @@ strip = true
 # the path to the running one instead. macOS does it natively.
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 tauri-plugin-single-instance = "2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
 
 # The Liquid Glass window backdrop (`glass.rs`). Only the AppKit classes that
 # file touches; the crate's default features pull in the whole framework.

@@ -9,6 +9,7 @@
  * indicator and the modal prompts are app-wide because only one of each can be
  * on screen at a time.
  */
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import { DEFAULT_PAGE_SIZE } from "$lib/annotations/blank";
@@ -280,7 +281,11 @@ class Session {
    */
   async requestQuit() {
     if (!(await this.requestCloseAll())) return;
-    await getCurrentWindow().destroy();
+    try {
+      await invoke("exit_app");
+    } catch {
+      await getCurrentWindow().destroy().catch(() => {});
+    }
   }
 
   // ----------------------------------------------------------------- saving

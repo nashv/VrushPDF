@@ -69,6 +69,14 @@ pub fn run() {
                     glass::place_traffic_lights(ns_window);
                 }
             }
+
+            #[cfg(target_os = "linux")]
+            if matches!(_event, tauri::WindowEvent::Destroyed) {
+                // When the main window is destroyed on Linux, terminate the process
+                // immediately so WebKitGTK / GDK Wayland does not attempt invalid teardown
+                // operations on unmapped Wayland surfaces.
+                unsafe { libc::_exit(0) };
+            }
         })
         .manage(commands::OpenedFiles::default())
         .invoke_handler(tauri::generate_handler![
@@ -97,6 +105,7 @@ pub fn run() {
             commands::download_and_install_update,
             commands::install_update_payload,
             commands::relaunch_app,
+            commands::exit_app,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -129,7 +138,22 @@ pub fn run() {
                 }
             }
 
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(target_os = "linux")]
+            {
+                match &event {
+                    tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
+                        // Under Linux Wayland (particularly KDE Plasma with WebKitGTK and appmenu modules),
+                        // C/C++ shared library atexit destructors (in WebKitGTK, GDK Wayland, and Mesa/NVIDIA drivers)
+                        // attempt to flush or dereference already unmapped Wayland surfaces and sockets during exit,
+                        // raising SIGSEGV and triggering KDE's crash handler (DrKonqi).
+                        // Calling _exit(0) immediately terminates the process cleanly without executing corrupted atexit hooks.
+                        unsafe { libc::_exit(0) };
+                    }
+                    _ => {}
+                }
+            }
+
+            #[cfg(target_os = "windows")]
             let _ = (app, event);
         });
 }

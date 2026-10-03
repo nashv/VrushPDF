@@ -872,20 +872,38 @@ pub fn relaunch_app<R: Runtime>(app: AppHandle<R>) {
     app.restart();
 }
 
+/// Cleanly exit the application process.
+#[tauri::command]
+pub fn exit_app<R: Runtime>(app: AppHandle<R>) {
+    #[cfg(target_os = "linux")]
+    {
+        // On Linux Wayland (particularly KDE Plasma with WebKitGTK and appmenu modules),
+        // closing windows or exiting through C atexit destructors causes segfaults in
+        // WebKitGTK/Mesa/GDK as they attempt to access severed Wayland display handles.
+        // We trigger an immediate clean exit.
+        unsafe { libc::_exit(0) };
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        app.exit(0);
+    }
+}
+
 #[cfg(test)]
 mod updater_tests {
     use super::*;
 
     #[test]
     fn test_parse_checksum_from_sums() {
-        let sample = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  VrushPDF_0.5.7_aarch64.dmg\n\
-                      a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e  VrushPDF_0.5.7_x64.dmg\n";
+        let sample = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  VrushPDF_0.5.8_aarch64.dmg\n\
+                      a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e  VrushPDF_0.5.8_x64.dmg\n";
         assert_eq!(
-            parse_checksum_from_sums(sample, "VrushPDF_0.5.7_aarch64.dmg"),
+            parse_checksum_from_sums(sample, "VrushPDF_0.5.8_aarch64.dmg"),
             Some("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string())
         );
         assert_eq!(
-            parse_checksum_from_sums(sample, "VrushPDF_0.5.7_x64.dmg"),
+            parse_checksum_from_sums(sample, "VrushPDF_0.5.8_x64.dmg"),
             Some("a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e".to_string())
         );
         assert_eq!(parse_checksum_from_sums(sample, "nonexistent.zip"), None);
