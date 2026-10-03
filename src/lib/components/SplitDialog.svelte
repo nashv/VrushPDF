@@ -266,10 +266,10 @@
     transform: translate(-50%, -50%);
     width: 480px;
     max-width: 90vw;
-    background: var(--bg-1);
-    color: var(--text-1);
-    border: 1px solid var(--border);
-    border-radius: 8px;
+    background: var(--surface-float);
+    color: var(--text);
+    border: 1px solid var(--surface-float-border);
+    border-radius: var(--radius-lg);
     box-shadow: var(--shadow-3);
     padding: 20px;
     z-index: 51;
@@ -296,7 +296,7 @@
   .mode-tabs {
     display: flex;
     gap: 4px;
-    background: var(--bg-2);
+    background: var(--bg-sunken);
     padding: 3px;
     border-radius: 6px;
     border: 1px solid var(--border);
@@ -307,7 +307,7 @@
     padding: 6px 12px;
     font-size: 13px;
     font-weight: 500;
-    color: var(--text-2);
+    color: var(--text-muted);
     background: transparent;
     border: none;
     border-radius: 4px;
@@ -316,8 +316,8 @@
   }
 
   .mode-btn.active {
-    background: var(--bg-1);
-    color: var(--text-1);
+    background: var(--bg-raised);
+    color: var(--text);
     box-shadow: var(--shadow-1);
   }
 
@@ -338,8 +338,8 @@
     font-size: 14px;
     border: 1px solid var(--border);
     border-radius: 5px;
-    background: var(--bg-0);
-    color: var(--text-1);
+    background: var(--bg-raised);
+    color: var(--text);
   }
 
   .presets {
@@ -357,16 +357,16 @@
   .pill-btn {
     padding: 2px 8px;
     font-size: 11px;
-    background: var(--bg-2);
+    background: var(--bg-sunken);
     border: 1px solid var(--border);
     border-radius: 12px;
-    color: var(--text-2);
+    color: var(--text-muted);
     cursor: pointer;
   }
 
   .pill-btn:hover {
     background: var(--bg-hover);
-    color: var(--text-1);
+    color: var(--text);
   }
 
   .interval-row {
@@ -381,21 +381,21 @@
     font-size: 14px;
     border: 1px solid var(--border);
     border-radius: 5px;
-    background: var(--bg-0);
-    color: var(--text-1);
+    background: var(--bg-raised);
+    color: var(--text);
   }
 
   .unit {
     font-size: 13px;
-    color: var(--text-2);
+    color: var(--text-muted);
   }
 
   .summary {
     padding: 10px;
-    background: var(--bg-2);
+    background: var(--bg-sunken);
     border-radius: 6px;
     font-size: 12px;
-    color: var(--text-2);
+    color: var(--text-muted);
   }
 
   .preview-indices {

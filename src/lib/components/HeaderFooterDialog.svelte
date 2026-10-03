@@ -277,10 +277,10 @@
     transform: translate(-50%, -50%);
     width: 580px;
     max-width: 95vw;
-    background: var(--bg-1);
-    color: var(--text-1);
-    border: 1px solid var(--border);
-    border-radius: 8px;
+    background: var(--surface-float);
+    color: var(--text);
+    border: 1px solid var(--surface-float-border);
+    border-radius: var(--radius-lg);
     box-shadow: var(--shadow-3);
     padding: 20px;
     z-index: 51;
@@ -308,7 +308,7 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    background: var(--bg-2);
+    background: var(--bg-sunken);
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 12px;
@@ -339,8 +339,8 @@
     font-size: 12px;
     border: 1px solid var(--border);
     border-radius: 4px;
-    background: var(--bg-0);
-    color: var(--text-1);
+    background: var(--bg-raised);
+    color: var(--text);
   }
 
   .slot-input.center {
@@ -359,7 +359,7 @@
   .page-mockup {
     margin: 4px 0;
     padding: 10px;
-    background: var(--bg-1);
+    background: var(--bg-raised);
     border: 1px dashed var(--border);
     border-radius: 4px;
     display: flex;
@@ -396,10 +396,10 @@
   .pill-btn {
     padding: 3px 8px;
     font-size: 11px;
-    background: var(--bg-2);
+    background: var(--bg-sunken);
     border: 1px solid var(--border);
     border-radius: 12px;
-    color: var(--text-1);
+    color: var(--text);
     cursor: pointer;
   }
 
@@ -431,7 +431,7 @@
   .section-title {
     font-size: 12px;
     font-weight: 600;
-    color: var(--text-2);
+    color: var(--text-muted);
   }
 
   .row {
@@ -442,7 +442,7 @@
 
   .field-label {
     font-size: 12px;
-    color: var(--text-2);
+    color: var(--text-muted);
     width: 55px;
     flex: none;
   }
@@ -452,8 +452,8 @@
     font-size: 12px;
     border: 1px solid var(--border);
     border-radius: 4px;
-    background: var(--bg-0);
-    color: var(--text-1);
+    background: var(--bg-raised);
+    color: var(--text);
   }
 
   .num {
@@ -462,8 +462,8 @@
     font-size: 12px;
     border: 1px solid var(--border);
     border-radius: 4px;
-    background: var(--bg-0);
-    color: var(--text-1);
+    background: var(--bg-raised);
+    color: var(--text);
   }
 
   .color-picker {
@@ -488,8 +488,8 @@
     font-size: 12px;
     border: 1px solid var(--border);
     border-radius: 4px;
-    background: var(--bg-0);
-    color: var(--text-1);
+    background: var(--bg-raised);
+    color: var(--text);
   }
 
   .footer {

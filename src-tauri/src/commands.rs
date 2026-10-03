@@ -610,7 +610,13 @@ pub fn get_system_target() -> SystemTarget {
 
 #[tauri::command]
 pub fn check_latest_release() -> Result<String, String> {
-    let resp = ureq::get("https://api.github.com/repos/nashv/VrushPDF/releases/latest")
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(std::time::Duration::from_secs(8))
+        .timeout_read(std::time::Duration::from_secs(10))
+        .build();
+
+    let resp = agent
+        .get("https://api.github.com/repos/nashv/VrushPDF/releases/latest")
         .set("User-Agent", "VrushPDF-App")
         .set("Accept", "application/vnd.github.v3+json")
         .call()
@@ -864,4 +870,16 @@ pub fn install_update_payload<R: Runtime>(
 #[tauri::command]
 pub fn relaunch_app<R: Runtime>(app: AppHandle<R>) {
     app.restart();
+}
+
+#[cfg(test)]
+mod updater_tests {
+    use super::*;
+
+    #[test]
+    fn test_check_latest_release() {
+        let res = check_latest_release();
+        println!("Result: {:?}", res.is_ok());
+        assert!(res.is_ok());
+    }
 }

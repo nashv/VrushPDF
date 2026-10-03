@@ -499,10 +499,10 @@
     transform: translateX(-50%);
     width: 600px;
     max-width: 92vw;
-    background: var(--bg-1);
-    color: var(--text-1);
-    border: 1px solid var(--border);
-    border-radius: 10px;
+    background: var(--surface-float);
+    color: var(--text);
+    border: 1px solid var(--surface-float-border);
+    border-radius: var(--radius-lg);
     box-shadow: var(--shadow-3);
     z-index: 91;
     display: flex;
@@ -524,7 +524,7 @@
     background: transparent;
     border: none;
     font-size: 15px;
-    color: var(--text-1);
+    color: var(--text);
     outline: none;
   }
 
@@ -545,7 +545,7 @@
     padding: 2px 6px;
     font-size: 11px;
     font-family: inherit;
-    background: var(--bg-2);
+    background: var(--bg-sunken);
     border: 1px solid var(--border);
     border-radius: 4px;
     color: var(--text-muted);
@@ -573,17 +573,17 @@
     gap: 10px;
     padding: 8px 10px;
     border: none;
-    border-radius: 6px;
+    border-radius: var(--radius);
     background: transparent;
-    color: var(--text-1);
+    color: var(--text);
     cursor: pointer;
     text-align: left;
-    transition: background 0.1s ease;
+    transition: background-color 0.1s ease;
   }
 
   .cmd-item.selected {
     background: var(--bg-hover);
-    color: var(--text-1);
+    color: var(--text);
   }
 
   .icon-wrap {
@@ -591,7 +591,7 @@
     place-items: center;
     width: 24px;
     height: 24px;
-    color: var(--text-2);
+    color: var(--text-muted);
   }
 
   .cmd-item.selected .icon-wrap {
@@ -607,7 +607,7 @@
   .cmd-cat {
     font-size: 11px;
     color: var(--text-muted);
-    background: var(--bg-2);
+    background: var(--bg-sunken);
     padding: 2px 6px;
     border-radius: 4px;
   }

@@ -60,7 +60,7 @@ const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/lates
 class UpdaterStore {
   status = $state<UpdateStatus>("idle");
   dialogOpen = $state(false);
-  currentVersion = $state("0.5.6");
+  currentVersion = $state("0.5.7");
   release = $state<ReleaseInfo | null>(null);
   progress = $state<DownloadProgress>({ loaded: 0, total: 0, percent: 0 });
   errorMessage = $state<string | null>(null);
@@ -93,7 +93,7 @@ class UpdaterStore {
 
   closeDialog() {
     this.dialogOpen = false;
-    if (this.status === "up-to-date" || this.status === "error") {
+    if (this.status === "up-to-date" || this.status === "error" || this.status === "checking") {
       this.status = "idle";
     }
   }
@@ -127,18 +127,30 @@ class UpdaterStore {
     try {
       let data: any = null;
       try {
-        const rawJson = await checkLatestRelease();
+        const rawJson = await Promise.race([
+          checkLatestRelease(),
+          new Promise<string>((_, reject) =>
+            setTimeout(() => reject(new Error("Update check timed out after 10 seconds")), 10000),
+          ),
+        ]);
         data = JSON.parse(rawJson);
       } catch {
-        const response = await fetch(RELEASES_API, {
-          headers: { Accept: "application/vnd.github.v3+json" },
-        });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        try {
+          const response = await fetch(RELEASES_API, {
+            headers: { Accept: "application/vnd.github.v3+json" },
+            signal: controller.signal,
+          });
 
-        if (!response.ok) {
-          throw new Error(`GitHub release check failed (${response.status}: ${response.statusText})`);
+          if (!response.ok) {
+            throw new Error(`GitHub release check failed (${response.status}: ${response.statusText})`);
+          }
+
+          data = await response.json();
+        } finally {
+          clearTimeout(timeoutId);
         }
-
-        data = await response.json();
       }
 
       const tagName: string = data.tag_name || "";
