@@ -7,7 +7,9 @@
    * the viewport to be worth rendering, and the scroll position.
    */
   import type { DocumentTab } from "$lib/state/workspace.svelte";
+  import { viewer } from "$lib/state/viewer.svelte";
   import PageView from "./PageView.svelte";
+  import Icon from "./Icon.svelte";
 
   let { tab }: { tab: DocumentTab } = $props();
   const edits = $derived(tab.edits);
@@ -21,6 +23,9 @@
   let container: HTMLDivElement | undefined = $state();
   let containerWidth = $state(0);
   let containerHeight = $state(0);
+  let laserActive = $state(false);
+  let laserPos = $state<{ x: number; y: number } | null>(null);
+
   /**
    * Must be deeply reactive, not `$state.raw`: `bind:this` assigns into it by
    * index, and the observer and scroll effects have to see those writes.
@@ -29,6 +34,32 @@
   let intersecting = $state.raw(new Set<number>());
 
   const pages = $derived(edits.pages);
+
+  // Group pages for two-page spread layouts
+  const spreads = $derived.by<{ indices: number[] }[]>(() => {
+    const layout = viewer.pageLayout;
+    if (layout === "single") {
+      return pages.map((_, i) => ({ indices: [i] }));
+    }
+
+    const list: { indices: number[] }[] = [];
+    let i = 0;
+    if (layout === "two-page-cover" && pages.length > 0) {
+      list.push({ indices: [0] });
+      i = 1;
+    }
+
+    while (i < pages.length) {
+      if (i + 1 < pages.length) {
+        list.push({ indices: [i, i + 1] });
+        i += 2;
+      } else {
+        list.push({ indices: [i] });
+        i += 1;
+      }
+    }
+    return list;
+  });
 
   /** Largest page in the plan, so one scale suits the whole document. */
   const widest = $derived.by(() => {
@@ -40,7 +71,8 @@
       width = Math.max(width, d.width);
       height = Math.max(height, d.height);
     }
-    return { width, height };
+    const isSpread = viewer.pageLayout !== "single";
+    return { width: isSpread ? width * 2 + GUTTER : width, height };
   });
 
   const scale = $derived.by(() => {
@@ -183,27 +215,92 @@
     event.preventDefault();
     view.zoomBy(event.deltaY < 0 ? 1 : -1);
   }
+
+  function onMouseMove(event: MouseEvent) {
+    if (laserActive) {
+      laserPos = { x: event.clientX, y: event.clientY };
+    }
+  }
+
+  function onPresentationKeydown(event: KeyboardEvent) {
+    if (!viewer.presentationMode) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      viewer.presentationMode = false;
+    } else if (event.key === "ArrowRight" || event.key === "PageDown" || event.key === " ") {
+      event.preventDefault();
+      view.goToPage(Math.min(view.currentPage + 1, pages.length - 1));
+    } else if (event.key === "ArrowLeft" || event.key === "PageUp") {
+      event.preventDefault();
+      view.goToPage(Math.max(view.currentPage - 1, 0));
+    }
+  }
 </script>
+
+<svelte:window onkeydown={onPresentationKeydown} />
 
 <div
   bind:this={container}
   bind:clientWidth={containerWidth}
   bind:clientHeight={containerHeight}
-  class="viewer scroll"
+  class="viewer scroll reading-{viewer.readingMode}"
+  class:presentation={viewer.presentationMode}
+  role="region"
+  aria-label="Document View"
   onscroll={onScroll}
   onwheel={onWheel}
+  onmousemove={onMouseMove}
 >
   <div class="column" style:gap="{GUTTER}px" style:padding="{GUTTER}px">
-    {#each pages as entry, index (entry.id)}
-      <div
-        bind:this={pageEls[index]}
-        class="slot"
-        data-index={index}
-      >
-        <PageView {tab} {entry} pageIndex={index} {scale} visible={visible.has(index)} {onPan} />
+    {#each spreads as spread}
+      <div class="spread-row" style:gap="{GUTTER}px">
+        {#each spread.indices as index (pages[index].id)}
+          {@const entry = pages[index]}
+          <div
+            bind:this={pageEls[index]}
+            class="slot"
+            data-index={index}
+          >
+            <PageView {tab} {entry} pageIndex={index} {scale} visible={visible.has(index)} {onPan} />
+          </div>
+        {/each}
       </div>
     {/each}
   </div>
+
+  {#if laserActive && laserPos}
+    <div
+      class="laser-dot"
+      style:left="{laserPos.x}px"
+      style:top="{laserPos.y}px"
+    ></div>
+  {/if}
+
+  {#if viewer.presentationMode}
+    <div class="presentation-bar">
+      <button class="pres-btn" onclick={() => view.goToPage(Math.max(view.currentPage - 1, 0))} title="Previous Page">
+        <Icon name="chevron-left" size={16} />
+      </button>
+      <span class="pres-page">
+        {view.currentPage + 1} / {pages.length}
+      </span>
+      <button class="pres-btn" onclick={() => view.goToPage(Math.min(view.currentPage + 1, pages.length - 1))} title="Next Page">
+        <Icon name="chevron-right" size={16} />
+      </button>
+      <span class="pres-sep"></span>
+      <button
+        class="pres-btn"
+        class:active={laserActive}
+        onclick={() => (laserActive = !laserActive)}
+        title="Toggle Laser Pointer"
+      >
+        <span class="laser-icon"></span> Laser
+      </button>
+      <button class="pres-btn exit" onclick={() => (viewer.presentationMode = false)} title="Exit Presentation">
+        <Icon name="close" size={16} /> Exit
+      </button>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -214,8 +311,25 @@
     background: var(--bg-sunken);
   }
 
-  /* Liquid Glass (macOS): the one opaque card in the window. Content does not
-     go under glass here; the glass floats around it. */
+  /* Reading mode filters */
+  :global(.viewer.reading-dark .page-view) {
+    filter: invert(0.88) hue-rotate(180deg) contrast(1.1);
+  }
+  :global(.viewer.reading-sepia .page-view) {
+    filter: sepia(0.35) contrast(0.95) brightness(0.95);
+  }
+  :global(.viewer.reading-invert .page-view) {
+    filter: invert(1);
+  }
+
+  /* Presentation full screen mode */
+  .viewer.presentation {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: #0f172a;
+  }
+
   :global([data-glass]) .viewer {
     border-radius: var(--pane-radius);
     box-shadow: inset 0 0 0 0.5px var(--glass-stroke);
@@ -225,13 +339,93 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    /* min-content keeps the column from collapsing narrower than a zoomed page,
-       which is what allows horizontal scrolling at high zoom. */
     min-width: min-content;
+  }
+
+  .spread-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .slot {
     display: flex;
     flex: none;
+  }
+
+  /* Floating presentation controls */
+  .presentation-bar {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(15, 23, 42, 0.9);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 30px;
+    padding: 6px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #fff;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    z-index: 101;
+  }
+
+  .pres-btn {
+    background: transparent;
+    border: none;
+    color: #e2e8f0;
+    padding: 4px 8px;
+    border-radius: 16px;
+    cursor: pointer;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .pres-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: #fff;
+  }
+
+  .pres-btn.active {
+    background: #ef4444;
+    color: #fff;
+  }
+
+  .pres-page {
+    font-size: 13px;
+    font-weight: 500;
+    min-width: 50px;
+    text-align: center;
+  }
+
+  .pres-sep {
+    width: 1px;
+    height: 16px;
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  .laser-icon {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ef4444;
+    box-shadow: 0 0 6px #ef4444;
+    display: inline-block;
+  }
+
+  .laser-dot {
+    position: fixed;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #ef4444;
+    box-shadow: 0 0 12px 3px #ef4444;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 102;
   }
 </style>

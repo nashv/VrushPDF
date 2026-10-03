@@ -155,7 +155,7 @@ function stubSource(seeds: Record<string, string>, cliPath: string): string {
         case "settings_get": return { singleInstance: true, warnUnflattenedSignatures: true, autoUpdate: true };
         case "settings_set": return null;
         case "get_system_target": return { os: "macos", arch: "aarch64" };
-        case "check_latest_release": return JSON.stringify({ tag_name: "v0.5.5", assets: [] });
+        case "check_latest_release": return JSON.stringify({ tag_name: "v0.5.6", assets: [] });
         case "download_and_install_update": return null;
         case "install_update_payload": return null;
         case "relaunch_app": return null;
@@ -163,7 +163,7 @@ function stubSource(seeds: Record<string, string>, cliPath: string): string {
         case "recents_add": return [];
         case "signatures_list": return [];
         case "write_file": return metaFor(path);
-        case "plugin:app|version": return "0.5.5";
+        case "plugin:app|version": return "0.5.6";
         case "plugin:menu|new": return [menuRid++, (args.options && args.options.id) || "menu-" + menuRid];
         case "plugin:menu|append":
         case "plugin:menu|remove_at": return null;

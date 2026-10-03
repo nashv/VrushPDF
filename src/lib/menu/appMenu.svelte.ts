@@ -102,6 +102,7 @@ const TOOL_GROUPS: { tool: Tool; label: string }[][] = [
     { tool: "circle", label: "Ellipse" },
     { tool: "line", label: "Line" },
     { tool: "arrow", label: "Arrow" },
+    { tool: "measure", label: "Measure" },
   ],
   [
     { tool: "freetext", label: "Text Box" },
@@ -141,6 +142,24 @@ function fileMenu(recentsSubmenu: Submenu, quit: Spec[]): Spec {
         id: "file.merge",
         label: "Merge PDFs…",
         action: () => session.openMergeDialog(),
+      }),
+      item({
+        id: "file.split",
+        label: "Split & Extract Pages…",
+        enabled: hasDoc,
+        action: () => session.openSplitDialog(),
+      }),
+      item({
+        id: "file.watermark",
+        label: "Add Watermark…",
+        enabled: hasDoc,
+        action: () => session.openWatermarkDialog(),
+      }),
+      item({
+        id: "file.headersFooters",
+        label: "Headers, Footers & Bates Numbers…",
+        enabled: hasDoc,
+        action: () => session.openHeaderFooterDialog(),
       }),
       sep,
       item({
@@ -274,6 +293,13 @@ const viewMenu: Spec = {
   kind: "menu",
   label: "View",
   items: [
+    item({
+      id: "view.commandPalette",
+      label: "Command Palette…",
+      accelerator: "CmdOrCtrl+K",
+      action: () => session.toggleCommandPalette(),
+    }),
+    sep,
     item({
       id: "view.zoomIn",
       label: "Zoom In",

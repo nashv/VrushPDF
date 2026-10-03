@@ -171,6 +171,13 @@
 
     <button
       class="btn square"
+      title="Split or Extract pages…"
+      onclick={() => session.openSplitDialog()}
+    >
+      <Icon name="split" />
+    </button>
+    <button
+      class="btn square"
       title="Insert a blank page after this one"
       onclick={() => session.addBlankPage(insertAt)}
     >

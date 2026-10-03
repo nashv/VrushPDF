@@ -40,6 +40,9 @@ import {
 import { shownText } from "../src/lib/content/text.ts";
 import { detectBlocks, type TextRun } from "../src/lib/content/blocks.ts";
 import { createFreeText, freeTextRectAt } from "../src/lib/annotations/create.ts";
+import { parsePageRange, extractPages, splitByInterval } from "../src/lib/annotations/split.ts";
+import { generateHeadersFooters } from "../src/lib/annotations/headersFooters.ts";
+import { generateWatermarks } from "../src/lib/annotations/watermark.ts";
 import { compareSemver, pickAssetForSystem, type ReleaseAsset } from "../src/lib/updater/version.ts";
 import { importAnnots } from "../src/lib/annotations/import.ts";
 import type { ImageSource } from "../src/lib/annotations/write.ts";
@@ -1125,6 +1128,88 @@ async function main() {
 
     const linux = pickAssetForSystem(mockAssets, { os: "linux", arch: "x86_64" });
     assert.equal(linux?.name, "VrushPDF_0.5.3_amd64.AppImage");
+  });
+
+  // ---------------------------------------------------- split & extraction checks
+  console.log("\nDocument Assembly & Split / Extract…");
+  check("parsePageRange parses complex range strings correctly", () => {
+    assert.deepEqual(parsePageRange("1, 3-5, 8", 10), [0, 2, 3, 4, 7]);
+    assert.deepEqual(parsePageRange("2-4, 1", 5), [0, 1, 2, 3]);
+    assert.deepEqual(parsePageRange("3-5", 5), [2, 3, 4]);
+    assert.deepEqual(parsePageRange("10-20", 5), []);
+    assert.deepEqual(parsePageRange("", 5), []);
+  });
+
+  check("extractPages produces valid PDF with requested pages only", async () => {
+    const splitReq = {
+      pages: basePlan,
+      annots: [],
+      mainDocId: MAIN,
+      getSource: sources(baseBytes, new Set()),
+      resolveImage,
+    };
+    const extractedBytes = await extractPages(splitReq, [0, 2]);
+    const extractedDoc = await PDFDocument.load(extractedBytes);
+    assert.equal(extractedDoc.getPageCount(), 2);
+  });
+
+  check("splitByInterval splits document into chunks", async () => {
+    const splitReq = {
+      pages: basePlan,
+      annots: [],
+      mainDocId: MAIN,
+      getSource: sources(baseBytes, new Set()),
+      resolveImage,
+    };
+    const chunks = await splitByInterval(splitReq, 2);
+    assert.equal(chunks.length, 2); // 3 pages / 2 = 2 chunks
+    assert.equal(chunks[0].rangeLabel, "Pages 1-2");
+    assert.equal(chunks[1].rangeLabel, "Page 3");
+  });
+
+  // ---------------------------------------------------- headers, footers & watermarks checks
+  console.log("\nHeaders, Footers & Watermarking…");
+  check("generateHeadersFooters creates properly positioned and formatted annotations", () => {
+    const hfAnnots = generateHeadersFooters(
+      basePlan,
+      () => ({ width: 612, height: 792 }),
+      "test-doc.pdf",
+      {
+        headerLeft: "{title}",
+        footerCenter: "Page {page} of {pages}",
+        footerRight: "{bates}",
+        batesPrefix: "DOC-",
+        batesStart: 10,
+        batesDigits: 4,
+      },
+    );
+    // 3 pages * 3 active slots = 9 annotations
+    assert.equal(hfAnnots.length, 9);
+    const p1Footer = hfAnnots.find((a) => a.pageId === basePlan[0].id && a.align === "center");
+    assert.ok(p1Footer);
+    assert.equal(p1Footer?.text, "Page 1 of 3");
+
+    const p2Bates = hfAnnots.find((a) => a.pageId === basePlan[1].id && a.align === "right");
+    assert.ok(p2Bates);
+    assert.equal(p2Bates?.text, "DOC-0011");
+  });
+
+  check("generateWatermarks creates centered transparent watermark annotations", () => {
+    const wmAnnots = generateWatermarks(
+      basePlan,
+      () => ({ width: 612, height: 792 }),
+      {
+        text: "CONFIDENTIAL",
+        fontSize: 48,
+        color: "#dc2626",
+        opacity: 0.3,
+        pageRange: "all",
+      },
+    );
+    assert.equal(wmAnnots.length, 3);
+    assert.equal(wmAnnots[0].text, "CONFIDENTIAL");
+    assert.equal(wmAnnots[0].opacity, 0.3);
+    assert.equal(wmAnnots[0].bold, true);
   });
 
   console.log(

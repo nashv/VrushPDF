@@ -9,7 +9,10 @@
     | "sidebar" | "inspector" | "thumbnails" | "list" | "outline" | "search"
     | "rotate-cw" | "rotate-ccw" | "trash" | "plus" | "merge" | "scissors"
     | "chevron-left" | "chevron-right" | "chevron-up" | "chevron-down" | "close" | "check"
-    | "front" | "warning" | "file" | "lock";
+    | "front" | "warning" | "file" | "lock"
+    | "split" | "watermark" | "header-footer" | "two-page" | "reading-mode" | "presentation"
+    | "ruler" | "command" | "align-left" | "align-center" | "align-right"
+    | "align-top" | "align-middle" | "align-bottom" | "distribute-h" | "distribute-v";
 </script>
 
 <script lang="ts">
@@ -71,6 +74,22 @@
     warning: "M12 4l9 16H3Z M12 10v5 M12 17.5v.5",
     file: "M6 3h8l4 4v14H6Z M14 3v4h4",
     lock: "M6 10V7a6 6 0 1 1 12 0v3 M4 10h16v11H4Z M12 14v3",
+    split: "M4 4h6v16H4Z M14 4h6v16h-6Z M12 2v20",
+    watermark: "M12 2.7l6.4 6.3a9 9 0 1 1-12.8 0Z M12 7v10 M7 12h10",
+    "header-footer": "M4 3h16 M4 21h16 M4 7h16v10H4Z M8 12h8",
+    "two-page": "M4 5h7v14H4Z M13 5h7v14h-7Z",
+    "reading-mode": "M12 3a9 9 0 1 0 9 9c0-.5-.04-.98-.12-1.46A7 7 0 0 1 12 3Z",
+    presentation: "M3 4h18v12H3Z M12 16v5 M8 21h8 M10 8l5 3-5 3Z",
+    ruler: "M3 17l14-14 4 4-14 14H3Z M7 9l2 2 M10 6l2 2 M13 3l2 2 M6 14l2 2",
+    command: "M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3Z",
+    "align-left": "M4 4v16 M8 7h12v3H8Z M8 14h8v3H8Z",
+    "align-center": "M12 3v18 M6 7h12v3H6Z M8 14h8v3H8Z",
+    "align-right": "M20 4v16 M4 7h12v3H4Z M8 14h8v3H8Z",
+    "align-top": "M4 4h16 M7 8v12h3V8Z M14 8v8h3V8Z",
+    "align-middle": "M3 12h18 M7 6v12h3V6Z M14 8v8h3V8Z",
+    "align-bottom": "M4 20h16 M7 4v12h3V4Z M14 8v8h3V8Z",
+    "distribute-h": "M4 4v16 M20 4v16 M9 8h6v8H9Z",
+    "distribute-v": "M4 4h16 M4 20h16 M8 9v6h8V9Z",
   };
 </script>
 

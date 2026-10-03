@@ -10,6 +10,10 @@
   import OptimizeDialog from "$lib/components/OptimizeDialog.svelte";
   import PasswordDialog from "$lib/components/PasswordDialog.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
+  import SplitDialog from "$lib/components/SplitDialog.svelte";
+  import WatermarkDialog from "$lib/components/WatermarkDialog.svelte";
+  import HeaderFooterDialog from "$lib/components/HeaderFooterDialog.svelte";
+  import CommandPalette from "$lib/components/CommandPalette.svelte";
   import SignatureWarningDialog from "$lib/components/SignatureWarningDialog.svelte";
   import UpdateDialog from "$lib/components/UpdateDialog.svelte";
   import Resizer from "$lib/components/Resizer.svelte";
@@ -178,6 +182,22 @@
 
 {#if session.settingsOpen}
   <SettingsDialog />
+{/if}
+
+{#if session.splitOpen}
+  <SplitDialog />
+{/if}
+
+{#if session.watermarkOpen}
+  <WatermarkDialog />
+{/if}
+
+{#if session.headerFooterOpen}
+  <HeaderFooterDialog />
+{/if}
+
+{#if session.commandPaletteOpen}
+  <CommandPalette />
 {/if}
 
 {#if license.dialogOpen}

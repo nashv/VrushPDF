@@ -62,6 +62,7 @@
   import { clearSelection, mountTextLayer, selectionOnPage, type TextLayerHandle } from "$lib/pdf/textlayer";
   import type { PDFPageProxy } from "$lib/pdf/pdfjs";
   import { images } from "$lib/state/images.svelte";
+  import { session } from "$lib/state/session.svelte";
   import { MARKUP_TOOLS, viewer } from "$lib/state/viewer.svelte";
   import type { DocumentTab } from "$lib/state/workspace.svelte";
 
@@ -299,9 +300,9 @@
       return null;
     }
 
-    if (g.kind === "line" && (tool === "line" || tool === "arrow")) {
+    if (g.kind === "line" && (tool === "line" || tool === "arrow" || tool === "measure")) {
       const to = g.shift ? constrainAngle(g.origin, g.current) : g.current;
-      return createLineShape(tool, entry.id, g.origin, to, style);
+      return createLineShape(tool === "measure" ? "arrow" : tool, entry.id, g.origin, to, style);
     }
 
     return null;
@@ -383,10 +384,11 @@
 
       case "line":
       case "arrow":
+      case "measure":
         beginGesture(
           event,
           { kind: "line", origin: p, current: p, shift: event.shiftKey },
-          "Add line",
+          tool === "measure" ? "Measure distance" : "Add line",
         );
         return;
     }
@@ -464,7 +466,27 @@
       const p = pointOf(event);
       gesture = null;
 
-      if (created) {
+      if (tool === "measure" && created && "from" in created && "to" in created) {
+        const from = created.from as Point;
+        const to = (created as any).to as Point;
+        const distPt = Math.hypot(to.x - from.x, to.y - from.y);
+        const realDist = distPt / viewer.measureScale.docRatio;
+        const labelText = `${realDist.toFixed(2)} ${viewer.measureScale.unit}`;
+
+        edits.annots.push(created);
+        const midX = (from.x + to.x) / 2;
+        const midY = (from.y + to.y) / 2;
+        const labelAnnot = createFreeText(
+          entry.id,
+          { x: midX - 35, y: midY + 4, w: 70, h: 18 },
+          { ...viewer.style, fontSize: 10, fill: "#ffffff" },
+        );
+        labelAnnot.text = labelText;
+        labelAnnot.align = "center";
+        edits.annots.push(labelAnnot);
+        edits.select(labelAnnot.id);
+        session.notify(`Measured distance: ${labelText}`);
+      } else if (created) {
         edits.annots.push(created);
         edits.select(created.id);
         if (isFreeText(created)) editingId = created.id;

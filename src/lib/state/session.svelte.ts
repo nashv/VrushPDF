@@ -81,6 +81,50 @@ class Session {
   optimizeOpen = $state(false);
   /** True while the settings dialog is up. */
   settingsOpen = $state(false);
+  /** True while the split & extract dialog is up. */
+  splitOpen = $state(false);
+  /** True while the watermark dialog is up. */
+  watermarkOpen = $state(false);
+  /** True while the header & footer dialog is up. */
+  headerFooterOpen = $state(false);
+  /** True while the command palette is up. */
+  commandPaletteOpen = $state(false);
+
+  openSplitDialog() {
+    this.splitOpen = true;
+  }
+
+  closeSplitDialog() {
+    this.splitOpen = false;
+  }
+
+  openWatermarkDialog() {
+    this.watermarkOpen = true;
+  }
+
+  closeWatermarkDialog() {
+    this.watermarkOpen = false;
+  }
+
+  openHeaderFooterDialog() {
+    this.headerFooterOpen = true;
+  }
+
+  closeHeaderFooterDialog() {
+    this.headerFooterOpen = false;
+  }
+
+  openCommandPalette() {
+    this.commandPaletteOpen = true;
+  }
+
+  closeCommandPalette() {
+    this.commandPaletteOpen = false;
+  }
+
+  toggleCommandPalette() {
+    this.commandPaletteOpen = !this.commandPaletteOpen;
+  }
 
   notify(message: string, kind: Toast["kind"] = "info") {
     const toast: Toast = { id: crypto.randomUUID(), kind, message };
@@ -156,6 +200,24 @@ class Session {
     this.#passwordTab = null;
     // A tab opened solely for this file has nothing in it; don't strand it.
     if (tab && !tab.isOpen && workspace.count > 1) void workspace.close(tab.id);
+  }
+
+  /** Open raw PDF bytes in a fresh or specified tab. */
+  async openBytes(bytes: Uint8Array, displayName: string = "Untitled.pdf", options: { tab?: DocumentTab } = {}) {
+    const tab = options.tab ?? workspace.tabForOpen();
+    workspace.activate(tab.id);
+
+    await this.#withBusy("Opening…", async () => {
+      const source = await tab.doc.openMain(bytes, null, undefined, displayName);
+      const pages = planFor(source);
+      const { annots, suppress, managedRefs } = await importAnnots(bytes, pages);
+
+      tab.doc.setManagedRefs(MAIN_DOC, managedRefs);
+      tab.doc.suppressOnCanvas(MAIN_DOC, suppress);
+
+      tab.edits.reset(pages, annots);
+      tab.search.clear();
+    });
   }
 
   /** Open one or more paths, each in its own tab. */

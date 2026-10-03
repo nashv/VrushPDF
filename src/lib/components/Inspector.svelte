@@ -364,6 +364,32 @@
       </section>
     {/if}
 
+    {#if hasRect(annot) || isLineShape(annot) || isBoxShape(annot) || isFreeText(annot) || isStamp(annot)}
+      <section>
+        <span class="label">Alignment</span>
+        <div class="align-grid">
+          <button class="btn square" title="Align Left" onclick={() => edits.alignSelected("left")}>
+            <Icon name="align-left" size={14} />
+          </button>
+          <button class="btn square" title="Align Center (Horizontal)" onclick={() => edits.alignSelected("center")}>
+            <Icon name="align-center" size={14} />
+          </button>
+          <button class="btn square" title="Align Right" onclick={() => edits.alignSelected("right")}>
+            <Icon name="align-right" size={14} />
+          </button>
+          <button class="btn square" title="Align Top" onclick={() => edits.alignSelected("top")}>
+            <Icon name="align-top" size={14} />
+          </button>
+          <button class="btn square" title="Align Middle (Vertical)" onclick={() => edits.alignSelected("middle")}>
+            <Icon name="align-middle" size={14} />
+          </button>
+          <button class="btn square" title="Align Bottom" onclick={() => edits.alignSelected("bottom")}>
+            <Icon name="align-bottom" size={14} />
+          </button>
+        </div>
+      </section>
+    {/if}
+
     <section class="meta">
       {#if formatted}<div>{formatted}</div>{/if}
       {#if when}<div>Edited {when}</div>{/if}
@@ -630,6 +656,19 @@
     margin: 0;
     color: var(--danger);
     line-height: 1.45;
+  }
+
+  .align-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 4px;
+    margin-top: 4px;
+  }
+
+  .square {
+    padding: 6px;
+    display: grid;
+    place-items: center;
   }
 
   .meta {

@@ -46,6 +46,7 @@
       { tool: "circle", icon: "circle", title: "Ellipse", key: "O" },
       { tool: "line", icon: "line", title: "Line", key: "L" },
       { tool: "arrow", icon: "arrow", title: "Arrow", key: "A" },
+      { tool: "measure", icon: "ruler", title: "Measure distance", key: "M", short: "Measure" },
     ],
     [
       { tool: "freetext", icon: "textbox", title: "Text box", key: "X" },
@@ -139,6 +140,18 @@
       <button class="btn square" title="Merge PDFs…" onclick={() => session.openMergeDialog()}>
         <Icon name="merge" />
         <span class="btn-label">Merge</span>
+      </button>
+      <button class="btn square" title="Split & Extract Pages…" disabled={!open} onclick={() => session.openSplitDialog()}>
+        <Icon name="scissors" />
+        <span class="btn-label">Split</span>
+      </button>
+      <button class="btn square" title="Watermark…" disabled={!open} onclick={() => session.openWatermarkDialog()}>
+        <Icon name="watermark" />
+        <span class="btn-label">Watermark</span>
+      </button>
+      <button class="btn square" title="Headers & Footers…" disabled={!open} onclick={() => session.openHeaderFooterDialog()}>
+        <Icon name="header-footer" />
+        <span class="btn-label">Headers</span>
       </button>
       <button class="btn square" title="Save (⌘S)" disabled={!open} onclick={() => session.save()}>
         <Icon name="save" />
@@ -268,6 +281,59 @@
       >
         <Icon name="chevron-right" />
         <span class="btn-label">Next</span>
+      </button>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="cluster glass">
+      <button
+        class="btn square"
+        class:selected={viewer.pageLayout !== "single"}
+        title="Page layout: {viewer.pageLayout}"
+        onclick={() => {
+          if (viewer.pageLayout === "single") viewer.pageLayout = "two-page";
+          else if (viewer.pageLayout === "two-page") viewer.pageLayout = "two-page-cover";
+          else viewer.pageLayout = "single";
+        }}
+      >
+        <Icon name="two-page" />
+        <span class="btn-label">Layout</span>
+      </button>
+
+      <button
+        class="btn square"
+        class:selected={viewer.readingMode !== "default"}
+        title="Reading filter: {viewer.readingMode}"
+        onclick={() => {
+          if (viewer.readingMode === "default") viewer.readingMode = "dark";
+          else if (viewer.readingMode === "dark") viewer.readingMode = "sepia";
+          else if (viewer.readingMode === "sepia") viewer.readingMode = "invert";
+          else viewer.readingMode = "default";
+        }}
+      >
+        <Icon name="reading-mode" />
+        <span class="btn-label">Reading</span>
+      </button>
+
+      <button
+        class="btn square"
+        class:selected={viewer.presentationMode}
+        title="Presentation mode (F5)"
+        disabled={!open}
+        onclick={() => (viewer.presentationMode = !viewer.presentationMode)}
+      >
+        <Icon name="presentation" />
+        <span class="btn-label">Present</span>
+      </button>
+
+      <button
+        class="btn square"
+        title="Command Palette (⌘K)"
+        onclick={() => session.toggleCommandPalette()}
+      >
+        <Icon name="command" />
+        <span class="btn-label">Commands</span>
       </button>
     </div>
 

@@ -10,10 +10,20 @@ export type Tool =
   | "text"
   | AnnotKind
   | "eraser"
-  | "signature";
+  | "signature"
+  | "measure";
+
+export type PageLayout = "single" | "two-page" | "two-page-cover";
+export type ReadingMode = "default" | "dark" | "sepia" | "invert";
+
+export interface MeasureScale {
+  docRatio: number; // points per real unit (e.g. 72pt = 1in)
+  unit: string;
+  scaleLabel: string;
+}
 
 /** Tools that create an annotation by dragging out a rectangle or a line. */
-export const DRAG_TOOLS: Tool[] = ["square", "circle", "line", "arrow", "freetext", "stamp", "signature"];
+export const DRAG_TOOLS: Tool[] = ["square", "circle", "line", "arrow", "freetext", "stamp", "signature", "measure"];
 /** Tools that consume a text selection from the text layer. */
 export const MARKUP_TOOLS: Tool[] = ["highlight", "underline", "strikeout", "squiggly"];
 
@@ -201,6 +211,11 @@ class ViewerStore {
   sidebarOpen = $state(true);
   sidebarTab = $state<SidebarTab>("thumbnails");
   inspectorOpen = $state(true);
+
+  pageLayout = $state<PageLayout>("single");
+  readingMode = $state<ReadingMode>("default");
+  presentationMode = $state(false);
+  measureScale = $state<MeasureScale>({ docRatio: 72, unit: "in", scaleLabel: "1 in = 1 in" });
 
   /**
    * Panel widths. A CSS `max-width` caps these against the window, so a narrow

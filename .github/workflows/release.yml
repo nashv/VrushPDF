@@ -196,14 +196,31 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ls -R dist
+          cd dist
+          sha256sum * > SHA256SUMS.txt 2>/dev/null || shasum -a 256 * > SHA256SUMS.txt
+          cd ..
           FILES=$(find dist -maxdepth 1 -type f | sort)
-          if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            gh release upload "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --clobber $FILES
+          TARGET_REPO="nashv/VrushPDF"
+          RELEASE_TOKEN="${{ secrets.PUBLIC_REPO_TOKEN || secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}"
+          export GH_TOKEN="$RELEASE_TOKEN"
+
+          if gh release view "${GITHUB_REF_NAME}" --repo "$TARGET_REPO" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" --repo "$TARGET_REPO" --clobber $FILES
+          elif gh release create "${GITHUB_REF_NAME}" \
+            --repo "$TARGET_REPO" \
+            --title "VrushPDF ${GITHUB_REF_NAME}" \
+            --notes 'Download the installer for your platform below. These builds are unsigned — see the README for how to get past Gatekeeper and SmartScreen.' \
+            $FILES 2>/dev/null; then
+            echo "Successfully published release ${GITHUB_REF_NAME} to $TARGET_REPO"
           else
-            gh release create "${GITHUB_REF_NAME}" \
-              --repo "${GITHUB_REPOSITORY}" \
-              --draft \
-              --title "VrushPDF ${GITHUB_REF_NAME}" \
-              --notes 'Download the installer for your platform below. These builds are unsigned — see the README for how to get past Gatekeeper and SmartScreen.' \
-              $FILES
+            if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+              gh release upload "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --clobber $FILES
+            else
+              gh release create "${GITHUB_REF_NAME}" \
+                --repo "${GITHUB_REPOSITORY}" \
+                --draft \
+                --title "VrushPDF ${GITHUB_REF_NAME}" \
+                --notes 'Download the installer for your platform below. These builds are unsigned — see the README for how to get past Gatekeeper and SmartScreen.' \
+                $FILES
+            fi
           fi

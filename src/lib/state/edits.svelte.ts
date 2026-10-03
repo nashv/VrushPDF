@@ -245,10 +245,41 @@ export class EditStore {
 
   // --------------------------------------------------------------- annotations
 
-  add(annot: Annot, label = "Add annotation") {
+  add(annot: Annot | Annot[], label = "Add annotation") {
     this.commit(label, () => {
-      this.annots.push(annot);
-      this.selectedId = annot.id;
+      if (Array.isArray(annot)) {
+        this.annots.push(...annot);
+        if (annot.length > 0) this.selectedId = annot[0].id;
+      } else {
+        this.annots.push(annot);
+        this.selectedId = annot.id;
+      }
+    });
+  }
+
+  /**
+   * Align the selected annotation (or annotations on the current page)
+   * to page edges, centers, or bounding boxes.
+   */
+  alignSelected(direction: "left" | "center" | "right" | "top" | "middle" | "bottom") {
+    if (!this.selectedId) return;
+    const annot = this.annot(this.selectedId);
+    if (!annot) return;
+    const page = this.page(annot.pageId);
+    if (!page) return;
+    const dims = this.displayDims(page);
+
+    this.commit(`Align ${direction}`, () => {
+      if ("rect" in annot && annot.rect) {
+        const r = { ...annot.rect };
+        if (direction === "left") r.x = 24;
+        else if (direction === "center") r.x = (dims.width - r.w) / 2;
+        else if (direction === "right") r.x = dims.width - 24 - r.w;
+        else if (direction === "top") r.y = dims.height - 24 - r.h;
+        else if (direction === "middle") r.y = (dims.height - r.h) / 2;
+        else if (direction === "bottom") r.y = 24;
+        this.update(annot.id, { rect: r });
+      }
     });
   }
 

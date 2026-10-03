@@ -31,6 +31,7 @@ const TOOL_KEYS: Record<string, Tool> = {
   x: "freetext",
   n: "note",
   s: "signature",
+  m: "measure",
 };
 
 function isTyping(target: EventTarget | null): boolean {
@@ -117,6 +118,10 @@ export function handleShortcut(event: KeyboardEvent) {
         viewer.sidebarOpen = true;
         viewer.sidebarTab = "search";
         return;
+      case "k":
+        event.preventDefault();
+        session.toggleCommandPalette();
+        return;
       case "g":
         event.preventDefault();
         if (event.shiftKey) tab?.search.previous();
@@ -150,6 +155,12 @@ export function handleShortcut(event: KeyboardEvent) {
     // Escape backs out: first the selection, then the tool.
     if (tab?.edits.selectedId) tab.edits.select(null);
     else viewer.setTool("select");
+    return;
+  }
+
+  if (key === "F5") {
+    event.preventDefault();
+    viewer.presentationMode = !viewer.presentationMode;
     return;
   }
 
