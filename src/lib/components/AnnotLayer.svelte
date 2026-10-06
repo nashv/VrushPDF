@@ -268,8 +268,10 @@
             {@const text = annot.overlayText || "[REDACTED]"}
             {@const fontSize = Math.min(Math.max(r.h * 0.55, 6), 11)}
             <text
-              x={r.x + r.w / 2}
-              y={r.y + r.h / 2 + fontSize * 0.35}
+              transform="translate({r.x + r.w / 2}, {r.y + r.h / 2}) scale(1, -1)"
+              x="0"
+              y="0"
+              dominant-baseline="central"
               font-family="system-ui, -apple-system, sans-serif"
               font-size={fontSize}
               font-weight="bold"
