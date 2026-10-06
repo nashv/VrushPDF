@@ -16,6 +16,7 @@ import {
   isInk,
   isLineShape,
   isNote,
+  isRedact,
   isStamp,
   isTextMarkup,
   NOTE_SIZE,
@@ -451,6 +452,37 @@ function noteAppearance(a: Annot): Appearance | null {
   return { ops, bbox: { x, y, w, h }, needs: {} };
 }
 
+function redactAppearance(a: Annot, encode: EncodeText): Appearance | null {
+  if (!isRedact(a)) return null;
+  const { x, y, w, h } = a.rect;
+  const borderCol = a.borderColor || a.color || "#ef4444";
+  const fillCol = a.fillColor || "#000000";
+
+  const ops: string[] = [
+    "q",
+    strokeColor(borderCol),
+    "1.5 w",
+    `${num(x + 0.75)} ${num(y + 0.75)} ${num(w - 1.5)} ${num(h - 1.5)} re`,
+    "S",
+  ];
+
+  if (a.overlayText && a.overlayText.trim().length > 0) {
+    const fontSize = Math.min(Math.max(h * 0.5, 6), 12);
+    const textY = y + (h - fontSize) / 2 + 1;
+    ops.push(
+      "BT",
+      `/Helv ${num(fontSize)} Tf`,
+      fillColor(borderCol),
+      `1 0 0 1 ${num(x + 4)} ${num(textY)} Tm`,
+      `${encode(a.overlayText)} Tj`,
+      "ET",
+    );
+  }
+
+  ops.push("Q");
+  return { ops: ops.join("\n"), bbox: a.rect, needs: { font: true, fontTag: "Helv" } };
+}
+
 /**
  * Build the appearance for `annot`, or `null` when the kind doesn't use one
  * (sticky notes rely on the viewer's own note icon).
@@ -466,6 +498,7 @@ export function buildAppearance(
   if (isFreeText(annot)) return freeTextAppearance(annot, ctx.measure, ctx.encode);
   if (isStamp(annot)) return stampAppearance(annot, ctx.imageName ?? "Im0");
   if (isNote(annot)) return noteAppearance(annot);
+  if (isRedact(annot)) return redactAppearance(annot, ctx.encode);
   return null;
 }
 

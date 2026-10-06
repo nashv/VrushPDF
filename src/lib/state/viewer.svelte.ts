@@ -23,7 +23,17 @@ export interface MeasureScale {
 }
 
 /** Tools that create an annotation by dragging out a rectangle or a line. */
-export const DRAG_TOOLS: Tool[] = ["square", "circle", "line", "arrow", "freetext", "stamp", "signature", "measure"];
+export const DRAG_TOOLS: Tool[] = [
+  "square",
+  "circle",
+  "line",
+  "arrow",
+  "freetext",
+  "stamp",
+  "signature",
+  "measure",
+  "redact",
+];
 /** Tools that consume a text selection from the text layer. */
 export const MARKUP_TOOLS: Tool[] = ["highlight", "underline", "strikeout", "squiggly"];
 
@@ -124,6 +134,7 @@ function defaultStyles(): Record<AnnotKind, AnnotStyle> {
     },
     note: { ...base, color: "#fbbf24" },
     stamp: { ...base, width: 0 },
+    redact: { ...base, color: "#ef4444", fill: "#000000", width: 1.5, opacity: 1 },
   };
 }
 

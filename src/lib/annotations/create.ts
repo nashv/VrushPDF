@@ -11,6 +11,7 @@ import {
   type Point,
   type Quad,
   type Rect,
+  type RedactAnnot,
   type StampAnnot,
   type TextMarkupKind,
 } from "./types";
@@ -113,6 +114,29 @@ export function createStamp(
     imageId,
     rotation: 0,
     isSignature,
+  };
+}
+
+export function createRedact(
+  pageId: string,
+  rect: Rect,
+  style: AnnotStyle,
+  quads?: Quad[],
+  overlayText?: string,
+): RedactAnnot {
+  return {
+    ...baseOf(pageId, style),
+    kind: "redact",
+    rect: {
+      x: rect.x,
+      y: rect.y,
+      w: Math.max(rect.w, 4),
+      h: Math.max(rect.h, 4),
+    },
+    quads,
+    overlayText: overlayText ?? "",
+    fillColor: style.fill ?? "#000000",
+    borderColor: style.color || "#ef4444",
   };
 }
 

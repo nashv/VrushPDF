@@ -15,8 +15,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { DEFAULT_PAGE_SIZE } from "$lib/annotations/blank";
 import { importAnnots } from "$lib/annotations/import";
 import { optimizePdf, type OptimizeOptions } from "$lib/annotations/optimize";
+import { applyRedactionsToDocument, type RedactTarget } from "$lib/annotations/redact";
 import { buildSavedPdf, type SourceBytes } from "$lib/annotations/save";
-import { isStamp, type Annot, type PageEntry } from "$lib/annotations/types";
+import { isRedact, isStamp, type Annot, type PageEntry } from "$lib/annotations/types";
 import type { ImageSource } from "$lib/annotations/write";
 import { PasswordRequired } from "$lib/pdf/pdfjs";
 import { printPdf } from "$lib/pdf/print";
@@ -442,6 +443,90 @@ class Session {
       const title = tab.doc.name || "Document";
       await printPdf(result.bytes, title);
     });
+  }
+
+  /** Permanently apply and sanitize all pending redactions on the tab. */
+  async applyRedactions(target?: DocumentTab): Promise<boolean> {
+    const tab = target ?? workspace.active;
+    if (!tab?.isOpen) return false;
+
+    const redactions = tab.edits.annots.filter(isRedact);
+    if (redactions.length === 0) {
+      this.notify("No pending redactions to apply.");
+      return false;
+    }
+
+    const count = redactions.length;
+    const ok = await this.#withBusy("Applying redactions…", async () => {
+      const buildResult = await buildSavedPdf({
+        pages: $state.snapshot(tab.edits.pages),
+        annots: $state.snapshot(tab.edits.annots),
+        mainDocId: MAIN_DOC,
+        getSource: this.#sourceBytes(tab),
+        resolveImage: this.#resolveImage,
+        fields: $state.snapshot(tab.edits.fields),
+      });
+
+      const pageIndexMap = new Map<string, number>();
+      tab.edits.pages.forEach((p, idx) => {
+        pageIndexMap.set(p.id, idx);
+      });
+
+      const pageRedactions: { pageIndex: number; targets: RedactTarget[] }[] = [];
+      const redactionsByPageIndex = new Map<number, RedactTarget[]>();
+
+      for (const redact of redactions) {
+        const pageIdx = pageIndexMap.get(redact.pageId);
+        if (pageIdx === undefined) continue;
+        const list = redactionsByPageIndex.get(pageIdx) ?? [];
+        list.push({
+          rect: redact.rect,
+          fillColor: redact.fillColor,
+          overlayText: redact.overlayText,
+        });
+        redactionsByPageIndex.set(pageIdx, list);
+      }
+
+      for (const [pageIndex, targets] of redactionsByPageIndex.entries()) {
+        pageRedactions.push({ pageIndex, targets });
+      }
+
+      const sanitized = await applyRedactionsToDocument({
+        docBytes: buildResult.bytes,
+        pageRedactions,
+      });
+
+      const page = tab.view.currentPage;
+      const zoom = tab.view.zoom;
+      const scrollTop = tab.view.scrollTop;
+
+      const source = await tab.doc.openMain(
+        sanitized.bytes,
+        tab.doc.path,
+        tab.doc.password,
+        tab.doc.name,
+      );
+      const pages = planFor(source);
+      const { annots, suppress, managedRefs } = await importAnnots(sanitized.bytes, pages);
+
+      tab.doc.setManagedRefs(MAIN_DOC, managedRefs);
+      tab.doc.suppressOnCanvas(MAIN_DOC, suppress);
+
+      tab.edits.reset(pages, annots);
+      tab.edits.dirty = true;
+
+      tab.view.zoom = zoom;
+      tab.view.scrollTop = scrollTop;
+      tab.view.currentPage = Math.min(page, Math.max(pages.length - 1, 0));
+
+      tab.search.clear();
+      tab.view.goToPage(tab.view.currentPage);
+
+      this.notify(`Permanently applied ${count} redaction(s). Underlying text & data excised.`);
+      return true;
+    });
+
+    return ok === true;
   }
 
   /**

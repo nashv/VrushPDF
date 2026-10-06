@@ -1,6 +1,6 @@
 <script lang="ts">
   /** Top chrome: file actions and zoom on one row, tools and their style on the next. */
-  import type { AnnotKind } from "$lib/annotations/types";
+  import { isRedact, type AnnotKind } from "$lib/annotations/types";
   import { images } from "$lib/state/images.svelte";
   import { license } from "$lib/state/license.svelte";
   import { session } from "$lib/state/session.svelte";
@@ -51,6 +51,7 @@
     [
       { tool: "freetext", icon: "textbox", title: "Text box", key: "X" },
       { tool: "note", icon: "note", title: "Comment", key: "N" },
+      { tool: "redact", icon: "redact", title: "Redact area or text (D)", key: "D", short: "Redact" },
     ],
   ];
 
@@ -60,6 +61,7 @@
   ];
 
   const open = $derived(tab?.isOpen === true);
+  const pendingRedactionsCount = $derived(tab ? tab.edits.annots.filter(isRedact).length : 0);
   /** The kind whose style the controls edit, or null for non-drawing tools. */
   const styledKind = $derived.by<AnnotKind | null>(() => {
     const tool = viewer.tool;
@@ -73,7 +75,12 @@
         styledKind,
       ),
   );
-  const showFill = $derived(styledKind === "square" || styledKind === "circle" || styledKind === "freetext");
+  const showFill = $derived(
+    styledKind === "square" ||
+      styledKind === "circle" ||
+      styledKind === "freetext" ||
+      styledKind === "redact",
+  );
   const showFontSize = $derived(styledKind === "freetext");
 
   const zoomLabel = $derived(`${Math.round((tab?.view.scale ?? 1) * 100)}%`);
@@ -427,6 +434,21 @@
       </div>
     </div>
 
+    {#if pendingRedactionsCount > 0}
+      <div class="divider"></div>
+      <div class="cluster glass">
+        <button
+          class="btn accent redact-apply-btn"
+          title="Permanently sanitize and excise underlying content for all redactions"
+          onclick={() => tab && session.applyRedactions(tab)}
+        >
+          <Icon name="redact" />
+          <span class="btn-label">Apply</span>
+          <span class="apply-text">Apply Redactions ({pendingRedactionsCount})</span>
+        </button>
+      </div>
+    {/if}
+
     <span class="spacer" data-tauri-drag-region={drag}></span>
 
     {#if style && styledKind}
@@ -701,6 +723,32 @@
     background: var(--danger-soft);
     color: var(--danger);
     font-size: 11px;
+  }
+
+  .redact-apply-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 8px;
+    border-radius: var(--radius);
+    background: rgb(239 68 68 / 15%);
+    border: 1px solid rgb(239 68 68 / 40%);
+    color: #ef4444;
+    font-weight: 500;
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.1s ease, border-color 0.1s ease;
+  }
+
+  .redact-apply-btn:hover {
+    background: rgb(239 68 68 / 25%);
+    border-color: #ef4444;
+  }
+
+  .toolbar.labels .apply-text {
+    display: none;
   }
 
   .trial {

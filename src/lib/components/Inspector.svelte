@@ -8,6 +8,7 @@
     isInk,
     isLineShape,
     isNote,
+    isRedact,
     isStamp,
     isTextMarkup,
     setFreeTextText,
@@ -16,6 +17,7 @@
     type Rotation,
   } from "$lib/annotations/types";
   import { images } from "$lib/state/images.svelte";
+  import { session } from "$lib/state/session.svelte";
   import { viewer } from "$lib/state/viewer.svelte";
   import type { DocumentTab } from "$lib/state/workspace.svelte";
   import Icon from "./Icon.svelte";
@@ -38,6 +40,7 @@
     freetext: "Text box",
     note: "Comment",
     stamp: "Stamp",
+    redact: "Redaction",
   };
 
   const NOTE_ICONS: NoteAnnot["icon"][] = [
@@ -142,7 +145,59 @@
       </section>
     {/if}
 
-    {#if !isFreeText(annot)}
+    {#if isRedact(annot)}
+      <section class="redact-banner">
+        <Icon name="warning" size={14} />
+        <div>
+          <strong>Pending Redaction</strong>
+          <p>Applying will permanently excise underlying text & images.</p>
+        </div>
+      </section>
+
+      <section>
+        <span class="label" id="redact-text">Overlay text</span>
+        <input
+          type="text"
+          class="field"
+          placeholder="e.g. [REDACTED]"
+          value={annot.overlayText ?? ""}
+          oninput={(event) => patch({ overlayText: event.currentTarget.value } as Partial<Annot>)}
+        />
+      </section>
+
+      <section class="grid">
+        <label>
+          <span class="label">Fill color</span>
+          <input
+            type="color"
+            value={annot.fillColor ?? "#000000"}
+            oninput={(event) => patch({ fillColor: event.currentTarget.value } as Partial<Annot>)}
+          />
+        </label>
+        <label>
+          <span class="label">Border</span>
+          <input
+            type="color"
+            value={annot.borderColor ?? "#ef4444"}
+            oninput={(event) => patch({ borderColor: event.currentTarget.value } as Partial<Annot>)}
+          />
+        </label>
+      </section>
+
+      <section>
+        <button
+          type="button"
+          class="btn accent"
+          style="width: 100%; justify-content: center; gap: 6px; background: #ef4444; border-color: #ef4444; color: white; font-weight: 600;"
+          onclick={() => session.applyRedactions(tab)}
+        >
+          <Icon name="redact" size={14} />
+          Apply All Redactions
+        </button>
+      </section>
+    {/if}
+
+    {#if !isFreeText(annot) && !isRedact(annot)}
       <section>
         <span class="label" id="comment">Comment</span>
         <textarea
@@ -156,52 +211,54 @@
       </section>
     {/if}
 
-    <section class="grid">
-      <label>
-        <span class="label">{isBoxShape(annot) ? "Stroke" : "Colour"}</span>
-        <input
-          type="color"
-          value={annot.color}
-          oninput={(event) => patch({ color: event.currentTarget.value })}
-        />
-      </label>
-
-      {#if isBoxShape(annot)}
+    {#if !isRedact(annot)}
+      <section class="grid">
         <label>
-          <span class="label">Fill</span>
-          <span class="fill-row">
-            <input
-              type="checkbox"
-              checked={annot.fill !== null}
-              aria-label="Filled"
-              onchange={(event) =>
-                patch({ fill: event.currentTarget.checked ? annot.color : null })}
-            />
-            {#if annot.fill !== null}
-              <input
-                type="color"
-                value={annot.fill}
-                aria-label="Fill colour"
-                oninput={(event) => patch({ fill: event.currentTarget.value })}
-              />
-            {/if}
-          </span>
+          <span class="label">{isBoxShape(annot) ? "Stroke" : "Colour"}</span>
+          <input
+            type="color"
+            value={annot.color}
+            oninput={(event) => patch({ color: event.currentTarget.value })}
+          />
         </label>
-      {/if}
-    </section>
 
-    <section>
-      <span class="label" id="opacity">Opacity — {Math.round(annot.opacity * 100)}%</span>
-      <input
-        type="range"
-        min="0.1"
-        max="1"
-        step="0.05"
-        aria-labelledby="opacity"
-        value={annot.opacity}
-        oninput={(event) => patch({ opacity: Number(event.currentTarget.value) })}
-      />
-    </section>
+        {#if isBoxShape(annot)}
+          <label>
+            <span class="label">Fill</span>
+            <span class="fill-row">
+              <input
+                type="checkbox"
+                checked={annot.fill !== null}
+                aria-label="Filled"
+                onchange={(event) =>
+                  patch({ fill: event.currentTarget.checked ? annot.color : null })}
+              />
+              {#if annot.fill !== null}
+                <input
+                  type="color"
+                  value={annot.fill}
+                  aria-label="Fill colour"
+                  oninput={(event) => patch({ fill: event.currentTarget.value })}
+                />
+              {/if}
+            </span>
+          </label>
+        {/if}
+      </section>
+
+      <section>
+        <span class="label" id="opacity">Opacity — {Math.round(annot.opacity * 100)}%</span>
+        <input
+          type="range"
+          min="0.1"
+          max="1"
+          step="0.05"
+          aria-labelledby="opacity"
+          value={annot.opacity}
+          oninput={(event) => patch({ opacity: Number(event.currentTarget.value) })}
+        />
+      </section>
+    {/if}
 
     {#if hasStroke}
       <section>
@@ -550,6 +607,30 @@
     color: var(--text-muted);
     font-style: italic;
     user-select: text;
+  }
+
+  .redact-banner {
+    display: flex;
+    flex-direction: row;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: var(--radius);
+    background: rgb(239 68 68 / 12%);
+    border: 1px solid rgb(239 68 68 / 30%);
+    color: var(--text);
+    font-size: 11px;
+    line-height: 1.4;
+  }
+
+  .redact-banner :global(svg) {
+    color: #ef4444;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .redact-banner p {
+    margin: 2px 0 0;
+    color: var(--text-muted);
   }
 
   .segmented {

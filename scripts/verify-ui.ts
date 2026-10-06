@@ -187,7 +187,7 @@ function stubSource(seeds: Record<string, string>, cliPath: string): string {
         case "settings_get": return { singleInstance: true, warnUnflattenedSignatures: true, autoUpdate: true };
         case "settings_set": return null;
         case "get_system_target": return { os: "macos", arch: "aarch64" };
-        case "check_latest_release": return JSON.stringify({ tag_name: "v0.5.8", assets: [] });
+        case "check_latest_release": return JSON.stringify({ tag_name: "v0.5.9", assets: [] });
         case "download_and_install_update": return null;
         case "install_update_payload": return null;
         case "relaunch_app": return null;
@@ -658,6 +658,30 @@ async function main() {
       return [...document.querySelectorAll('.widgets .note')].length > 0;
     })()`);
     check("saving comment popup persists the note annotation", () => assert.ok(noteCreated));
+
+    // --- redaction tool by dragging on page
+    await cdp.eval("document.querySelector('[title^=\"Redact\"]').click()");
+    await drag(
+      cdp,
+      { x: box.x + box.w * 0.15, y: atY(0.40) },
+      { x: box.x + box.w * 0.45, y: atY(0.50) },
+    );
+    const redactAnnots = await waitFor(
+      "redaction annotation",
+      () => cdp.eval<number>("document.querySelectorAll('.annot-layer rect[fill]').length"),
+      (n) => n > 0,
+    );
+    check("dragging with the redact tool creates a redaction annotation", () => assert.ok(redactAnnots > 0));
+
+    // Check that Apply Redactions button appears in the toolbar
+    const hasApplyBtn = await cdp.eval<boolean>("!!document.querySelector('.redact-apply-btn')");
+    check("toolbar displays Apply Redactions button when pending redactions exist", () => assert.ok(hasApplyBtn));
+
+    // Click Apply Redactions
+    await cdp.eval("document.querySelector('.redact-apply-btn').click()");
+    await sleep(600);
+    const applyBtnGone = await cdp.eval<boolean>("!document.querySelector('.redact-apply-btn')");
+    check("clicking Apply Redactions applies and clears pending redaction marks", () => assert.ok(applyBtnGone));
 
     // Switch to select tool, then back to rectangle for style controls
     await cdp.eval("document.querySelector('[title^=\"Select\"]').click()");

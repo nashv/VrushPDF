@@ -28,6 +28,7 @@ import {
   isInk,
   isLineShape,
   isNote,
+  isRedact,
   isStamp,
   isTextMarkup,
   type Annot,
@@ -47,6 +48,7 @@ const SUBTYPE: Record<Annot["kind"], string> = {
   freetext: "FreeText",
   note: "Text",
   stamp: "Stamp",
+  redact: "Redact",
 };
 
 /** Annotation flag bit 3: print the annotation. */
@@ -251,6 +253,17 @@ function geometryEntries(annot: Annot): Record<string, unknown> {
         Rotation: annot.rotation,
         IsSignature: annot.isSignature,
       },
+    };
+  }
+
+  if (isRedact(annot)) {
+    return {
+      IC: hexToRgb(annot.fillColor || "#000000"),
+      ...(annot.borderColor ? { OC: hexToRgb(annot.borderColor) } : {}),
+      ...(annot.overlayText ? { OverlayText: PDFString.of(annot.overlayText) } : {}),
+      ...(annot.quads && annot.quads.length > 0
+        ? { QuadPoints: annot.quads.flatMap((q) => [q.x1, q.y1, q.x2, q.y2, q.x3, q.y3, q.x4, q.y4]) }
+        : {}),
     };
   }
 

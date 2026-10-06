@@ -369,6 +369,26 @@ function toAnnot(dict: PDFDict, subtype: string, pageId: string, objectNumber: n
       return null;
     }
 
+    case "Redact": {
+      const rect = rectOf(dict);
+      if (!rect) return null;
+      const quads = quadsOf(dict);
+      const overlayText = lookupText(dict, "OverlayText") ?? undefined;
+      const ic = lookupNumbers(dict, "IC");
+      const oc = lookupNumbers(dict, "OC");
+      const fillColor = ic ? toHex(ic) : "#000000";
+      const borderColor = oc ? toHex(oc) : (base.color || "#ef4444");
+      return {
+        ...base,
+        kind: "redact",
+        rect,
+        quads: quads && quads.length > 0 ? quads : undefined,
+        overlayText,
+        fillColor,
+        borderColor,
+      };
+    }
+
     default:
       return null;
   }

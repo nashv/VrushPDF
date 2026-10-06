@@ -23,8 +23,11 @@
     onHighlight,
     onUnderline,
     onStrikeout,
+    onRedact,
     onCopyText,
     onAddTextBox,
+    onMarkRedact,
+    onApplyRedact,
     onEditComment,
     onDeleteAnnot,
     onClose,
@@ -41,8 +44,11 @@
     onHighlight: () => void;
     onUnderline: () => void;
     onStrikeout: () => void;
+    onRedact?: () => void;
     onCopyText: () => void;
     onAddTextBox: () => void;
+    onMarkRedact?: () => void;
+    onApplyRedact?: () => void;
     onEditComment: () => void;
     onDeleteAnnot: () => void;
     onClose: () => void;
@@ -111,13 +117,25 @@
       <Icon name="strikeout" size={15} />
       <span>Strikeout</span>
     </button>
+    {#if onRedact}
+      <button type="button" class="menu-item" role="menuitem" onclick={onRedact}>
+        <Icon name="redact" size={15} />
+        <span>Redact Text</span>
+      </button>
+    {/if}
     <div class="menu-divider"></div>
     <button type="button" class="menu-item" role="menuitem" onclick={onCopyText}>
       <Icon name="file" size={15} />
       <span>Copy Text</span>
     </button>
   {:else if hasTargetAnnot}
-    <button type="button" class="menu-item primary-action" role="menuitem" onclick={onEditComment}>
+    {#if targetAnnot?.kind === "redact" && onApplyRedact}
+      <button type="button" class="menu-item primary-action" role="menuitem" onclick={onApplyRedact}>
+        <Icon name="redact" size={15} />
+        <span>Apply Redaction</span>
+      </button>
+    {/if}
+    <button type="button" class="menu-item" role="menuitem" onclick={onEditComment}>
       <Icon name="note" size={15} />
       <span>{targetAnnot?.contents ? "Edit Comment" : "Add Comment"}</span>
     </button>
@@ -135,6 +153,12 @@
       <Icon name="textbox" size={15} />
       <span>Add Text Box</span>
     </button>
+    {#if onMarkRedact}
+      <button type="button" class="menu-item" role="menuitem" onclick={onMarkRedact}>
+        <Icon name="redact" size={15} />
+        <span>Mark Redaction</span>
+      </button>
+    {/if}
   {/if}
 </div>
 

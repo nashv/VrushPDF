@@ -4,7 +4,7 @@
     | "open" | "save" | "save-as" | "save-flattened" | "optimize" | "print" | "undo" | "redo"
     | "cursor" | "hand" | "text" | "highlight" | "underline" | "strikeout" | "squiggly"
     | "pen" | "eraser" | "square" | "circle" | "line" | "arrow" | "textbox" | "note"
-    | "stamp" | "signature"
+    | "stamp" | "signature" | "redact"
     | "zoom-in" | "zoom-out" | "fit-width" | "fit-page"
     | "sidebar" | "inspector" | "thumbnails" | "list" | "outline" | "search"
     | "rotate-cw" | "rotate-ccw" | "trash" | "plus" | "merge" | "scissors"
@@ -48,6 +48,7 @@
     note: "M5 4h14v11l-4 4H5Z M15 19v-4h4",
     stamp: "M9 4h6v4l2 3H7l2-3Z M5 15h14v4H5Z M5 15l1-4h12l1 4",
     signature: "M3 18c4 0 5-11 8-11s1 8 3 8 2-3 4-3 2 2 3 2",
+    redact: "M4 5h16v14H4Z M7 9h10v6H7Z M9 12h6",
     "zoom-in": "M10 4a6 6 0 1 0 0 12 6 6 0 1 0 0-12Z M14.5 14.5L20 20 M10 7v6 M7 10h6",
     "zoom-out": "M10 4a6 6 0 1 0 0 12 6 6 0 1 0 0-12Z M14.5 14.5L20 20 M7 10h6",
     "fit-width": "M4 6v12 M20 6v12 M7 12h10 M7 12l2-2 M7 12l2 2 M17 12l-2-2 M17 12l-2 2",

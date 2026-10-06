@@ -46,6 +46,7 @@
       { tool: "arrow", title: "Arrow Shape Tool", key: "A", icon: "arrow" },
       { tool: "freetext", title: "Text Box Tool", key: "X", icon: "textbox" },
       { tool: "note", title: "Sticky Note / Comment Tool", key: "N", icon: "note" },
+      { tool: "redact", title: "Redact Tool (Mark for Redaction)", key: "D", icon: "redact" },
       { tool: "measure", title: "Measurement / Caliper Tool", icon: "ruler" },
     ];
 
@@ -93,6 +94,15 @@
         shortcut: "⌥⌘S",
         icon: "save-flattened",
         action: () => void session.saveFlattened(),
+      },
+      {
+        id: "doc-apply-redactions",
+        title: "Apply All Redactions (Permanent Data Sanitization)",
+        category: "Document",
+        icon: "redact",
+        action: () => {
+          if (tab) void session.applyRedactions(tab);
+        },
       },
       {
         id: "doc-print",

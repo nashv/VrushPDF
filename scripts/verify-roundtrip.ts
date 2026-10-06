@@ -39,7 +39,8 @@ import {
 } from "../src/lib/content/tokenizer.ts";
 import { shownText } from "../src/lib/content/text.ts";
 import { detectBlocks, type TextRun } from "../src/lib/content/blocks.ts";
-import { createFreeText, freeTextRectAt } from "../src/lib/annotations/create.ts";
+import { createFreeText, createRedact, freeTextRectAt } from "../src/lib/annotations/create.ts";
+import { applyRedactionsToDocument, sanitizeContentStream } from "../src/lib/annotations/redact.ts";
 import { parsePageRange, extractPages, splitByInterval } from "../src/lib/annotations/split.ts";
 import { generateHeadersFooters } from "../src/lib/annotations/headersFooters.ts";
 import { generateWatermarks } from "../src/lib/annotations/watermark.ts";
@@ -1210,6 +1211,71 @@ async function main() {
     assert.equal(wmAnnots[0].text, "CONFIDENTIAL");
     assert.equal(wmAnnots[0].opacity, 0.3);
     assert.equal(wmAnnots[0].bold, true);
+  });
+
+  // ---------------------------------------------------- redaction & sanitization checks
+  console.log("\nTrue Content Redaction & Sanitization…");
+  check("createRedact creates valid RedactAnnot model object", () => {
+    const redact = createRedact(
+      basePlan[0].id,
+      { x: 50, y: 650, w: 200, h: 30 },
+      { color: "#ef4444", fill: "#000000", opacity: 1, width: 1.5, fontSize: 12 },
+      undefined,
+      "[REDACTED]",
+    );
+    assert.equal(redact.kind, "redact");
+    assert.equal(redact.overlayText, "[REDACTED]");
+    assert.equal(redact.fillColor, "#000000");
+    assert.equal(redact.borderColor, "#ef4444");
+    assert.equal(redact.rect.w, 200);
+  });
+
+  check("applyRedactionsToDocument permanently excises text from PDF content stream", async () => {
+    // 1. Create a PDF with confidential text
+    const testDoc = await PDFDocument.create();
+    const font = testDoc.embedStandardFont(StandardFonts.Helvetica);
+    const testPage = testDoc.addPage([612, 792]);
+    testPage.drawText("Public Title", { x: 50, y: 720, size: 14, font });
+    testPage.drawText("Secret Account: 987-654-3210 Private Info", { x: 50, y: 650, size: 12, font });
+    testPage.drawText("Other Public Footnote", { x: 50, y: 580, size: 10, font });
+    const rawPdfBytes = await testDoc.save({ useObjectStreams: false });
+
+    // Verify original contains the secret text in its bytes
+    const originalText = new TextDecoder("latin1").decode(rawPdfBytes);
+    assert.ok(originalText.includes("987-654-3210"));
+
+    // 2. Apply redaction over the region with Secret Account
+    const redactResult = await applyRedactionsToDocument({
+      docBytes: rawPdfBytes,
+      pageRedactions: [
+        {
+          pageIndex: 0,
+          targets: [
+            {
+              rect: { x: 40, y: 640, w: 300, h: 25 },
+              fillColor: "#000000",
+              overlayText: "[REDACTED]",
+            },
+          ],
+        },
+      ],
+    });
+
+    assert.equal(redactResult.redactionsApplied, 1);
+
+    // 3. Inspect sanitized PDF bytes
+    const sanitizedText = new TextDecoder("latin1").decode(redactResult.bytes);
+
+    // The sensitive account number must NOT exist in the file bytes
+    assert.equal(sanitizedText.includes("987-654-3210"), false, "Secret text was not excised!");
+
+    // Public text outside the redaction must remain intact
+    assert.ok(sanitizedText.includes("Public Title"), "Public title should be preserved");
+    assert.ok(sanitizedText.includes("Other Public Footnote"), "Public footnote should be preserved");
+
+    // Permanent vector block must be baked in
+    assert.ok(sanitizedText.includes("re f") || sanitizedText.includes("re"), "Baked vector block should be present");
+    assert.ok(sanitizedText.includes("[REDACTED]"), "Overlay text should be baked into content stream");
   });
 
   console.log(

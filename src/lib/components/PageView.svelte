@@ -24,6 +24,7 @@
     createInk,
     createLineShape,
     createNote,
+    createRedact,
     createStamp,
     createTextMarkup,
     freeTextRectAt,
@@ -36,18 +37,22 @@
     isFreeText,
     isInk,
     isNote,
+    isRedact,
     isStamp,
     isTextMarkup,
     normalizeRect,
+    rectFromQuad,
     scaleAnnotToRect,
     setFreeTextText,
     translateAnnot,
+    unionRects,
     type Annot,
     type FreeTextAnnot,
     type NoteAnnot,
     type PageEntry,
     type Point,
     type Rect,
+    type RedactAnnot,
     type TextMarkupAnnot,
     type TextMarkupKind,
   } from "$lib/annotations/types";
@@ -285,6 +290,7 @@
         return createBoxShape(tool, entry.id, rect, style);
       }
       if (tool === "freetext") return createFreeText(entry.id, rect, style);
+      if (tool === "redact") return createRedact(entry.id, rect, style);
       if (tool === "stamp" || tool === "signature") {
         const image = viewer.pendingStamp ? images.get(viewer.pendingStamp) : null;
         if (!image) return null;
@@ -364,10 +370,15 @@
       case "square":
       case "circle":
       case "freetext":
+      case "redact":
         beginGesture(
           event,
           { kind: "box", origin: p, current: p, shift: event.shiftKey },
-          tool === "freetext" ? "Add text box" : "Add shape",
+          tool === "freetext"
+            ? "Add text box"
+            : tool === "redact"
+              ? "Mark for redaction"
+              : "Add shape",
         );
         return;
 
@@ -514,6 +525,14 @@
         edits.annots.push(annot);
         edits.select(annot.id);
         editingId = annot.id;
+      } else if (g.kind === "box" && p && tool === "redact") {
+        const annot = createRedact(
+          entry.id,
+          { x: p.x - 40, y: p.y - 12, w: 80, h: 24 },
+          viewer.style,
+        );
+        edits.annots.push(annot);
+        edits.select(annot.id);
       }
 
       edits.end();
@@ -670,6 +689,35 @@
     edits.add(annot, "Add text box");
     edits.select(annot.id);
     editingId = annot.id;
+  }
+
+  function onContextMenuRedactSelection() {
+    if (!contextMenuState?.selection || !viewport) return;
+    const sel = contextMenuState.selection;
+    contextMenuState = null;
+    const r = unionRects(sel.quads.map(rectFromQuad));
+    const annot = createRedact(entry.id, r, viewer.styles.redact, sel.quads);
+    edits.add(annot, "Mark text for redaction");
+    edits.select(annot.id);
+    clearSelection();
+  }
+
+  function onContextMenuMarkRedact() {
+    if (!contextMenuState || !viewport) return;
+    const p = contextMenuState.point;
+    contextMenuState = null;
+    const annot = createRedact(
+      entry.id,
+      { x: p.x - 50, y: p.y - 15, w: 100, h: 30 },
+      viewer.styles.redact,
+    );
+    edits.add(annot, "Mark for redaction");
+    edits.select(annot.id);
+  }
+
+  function onContextMenuApplyRedact() {
+    contextMenuState = null;
+    void session.applyRedactions(tab);
   }
 
   function onContextMenuMarkup(kind: TextMarkupKind) {
@@ -916,6 +964,9 @@
         onStrikeout={() => onContextMenuMarkup("strikeout")}
         onCopyText={onContextMenuCopy}
         onAddTextBox={onContextMenuAddTextBox}
+        onRedact={onContextMenuRedactSelection}
+        onMarkRedact={onContextMenuMarkRedact}
+        onApplyRedact={onContextMenuApplyRedact}
         onEditComment={onContextMenuEditComment}
         onDeleteAnnot={onContextMenuDeleteAnnot}
         onClose={() => {

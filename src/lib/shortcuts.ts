@@ -32,6 +32,7 @@ const TOOL_KEYS: Record<string, Tool> = {
   n: "note",
   s: "signature",
   m: "measure",
+  d: "redact",
 };
 
 function isTyping(target: EventTarget | null): boolean {

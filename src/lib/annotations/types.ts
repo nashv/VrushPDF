@@ -60,7 +60,7 @@ export type FontFamily = "Helvetica" | "Times" | "Courier";
 
 export type TextMarkupKind = (typeof TEXT_MARKUP_KINDS)[number];
 export type ShapeKind = (typeof SHAPE_KINDS)[number];
-export type AnnotKind = TextMarkupKind | ShapeKind | "ink" | "freetext" | "note" | "stamp";
+export type AnnotKind = TextMarkupKind | ShapeKind | "ink" | "freetext" | "note" | "stamp" | "redact";
 
 interface AnnotBase {
   id: string;
@@ -157,6 +157,15 @@ export interface StampAnnot extends AnnotBase {
   isSignature: boolean;
 }
 
+export interface RedactAnnot extends AnnotBase {
+  kind: "redact";
+  rect: Rect;
+  quads?: Quad[];
+  overlayText?: string;
+  fillColor?: string;
+  borderColor?: string;
+}
+
 export type Annot =
   | TextMarkupAnnot
   | InkAnnot
@@ -164,7 +173,8 @@ export type Annot =
   | LineShapeAnnot
   | FreeTextAnnot
   | NoteAnnot
-  | StampAnnot;
+  | StampAnnot
+  | RedactAnnot;
 
 /** Fixed on-page size of a sticky-note icon, in points. */
 export const NOTE_SIZE = 20;
@@ -184,10 +194,13 @@ export const isInk = (a: Annot): a is InkAnnot => a.kind === "ink";
 export const isFreeText = (a: Annot): a is FreeTextAnnot => a.kind === "freetext";
 export const isNote = (a: Annot): a is NoteAnnot => a.kind === "note";
 export const isStamp = (a: Annot): a is StampAnnot => a.kind === "stamp";
+export const isRedact = (a: Annot): a is RedactAnnot => a.kind === "redact";
 
 /** Annotations positioned by a resizable rectangle. */
-export const hasRect = (a: Annot): a is BoxShapeAnnot | FreeTextAnnot | StampAnnot =>
-  isBoxShape(a) || isFreeText(a) || isStamp(a);
+export const hasRect = (
+  a: Annot,
+): a is BoxShapeAnnot | FreeTextAnnot | StampAnnot | RedactAnnot =>
+  isBoxShape(a) || isFreeText(a) || isStamp(a) || isRedact(a);
 
 // -------------------------------------------------------------------- geometry
 
@@ -219,6 +232,10 @@ export function unionRects(rects: Rect[]): Rect {
 
 export function padRect(r: Rect, pad: number): Rect {
   return { x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 };
+}
+
+export function rectsIntersect(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
 
 /** Bounding box in PDF space, used for hit-testing, `/Rect`, and selection UI. */

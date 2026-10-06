@@ -26,6 +26,7 @@
     freetext: "Text box",
     note: "Comment",
     stamp: "Stamp",
+    redact: "Redaction",
   };
 
   const KIND_ICON: Record<Annot["kind"], IconName> = {
@@ -41,6 +42,7 @@
     freetext: "textbox",
     note: "note",
     stamp: "stamp",
+    redact: "redact",
   };
 
   /**
@@ -63,6 +65,7 @@
   /** One line of preview text: the quoted text, the body, or the comment. */
   function preview(annot: Annot): string {
     if (isFreeText(annot)) return annot.text || "(empty)";
+    if (annot.kind === "redact") return annot.overlayText || "[REDACTED]";
     if (isTextMarkup(annot) && annot.quotedText) return `“${annot.quotedText}”`;
     return annot.contents || "";
   }

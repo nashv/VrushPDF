@@ -18,6 +18,7 @@
     isBoxShape,
     isInk,
     isLineShape,
+    isRedact,
     isStamp,
     isTextMarkup,
     rectFromQuad,
@@ -249,6 +250,36 @@
               stroke-width="1.8"
               stroke-linecap="round"
             />
+          {/if}
+        {:else if isRedact(annot)}
+          {@const r = annot.rect}
+          <rect
+            x={r.x}
+            y={r.y}
+            width={r.w}
+            height={r.h}
+            fill={annot.fillColor || "#000000"}
+            fill-opacity={annot === preview ? 0.35 : 0.85}
+            stroke={annot.borderColor || "#ef4444"}
+            stroke-width="1.5"
+            stroke-dasharray={annot === preview ? "4 3" : undefined}
+          />
+          {#if annot.overlayText || (!annot.overlayText && r.w >= 30 && r.h >= 12)}
+            {@const text = annot.overlayText || "[REDACTED]"}
+            {@const fontSize = Math.min(Math.max(r.h * 0.55, 6), 11)}
+            <text
+              x={r.x + r.w / 2}
+              y={r.y + r.h / 2 + fontSize * 0.35}
+              font-family="system-ui, -apple-system, sans-serif"
+              font-size={fontSize}
+              font-weight="bold"
+              fill={annot.borderColor || "#ef4444"}
+              text-anchor="middle"
+              pointer-events="none"
+              letter-spacing="0.5px"
+            >
+              {text}
+            </text>
           {/if}
         {:else if isStamp(annot)}
           {@const url = stampUrl(annot.imageId)}

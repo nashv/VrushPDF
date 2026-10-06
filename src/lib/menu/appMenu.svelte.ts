@@ -107,6 +107,7 @@ const TOOL_GROUPS: { tool: Tool; label: string }[][] = [
   [
     { tool: "freetext", label: "Text Box" },
     { tool: "note", label: "Comment" },
+    { tool: "redact", label: "Redact" },
   ],
 ];
 
@@ -189,6 +190,15 @@ function fileMenu(recentsSubmenu: Submenu, quit: Spec[]): Spec {
         accelerator: "CmdOrCtrl+Alt+S",
         enabled: hasDoc,
         action: () => void session.saveFlattened(),
+      }),
+      item({
+        id: "file.applyRedactions",
+        label: "Apply Redactions…",
+        enabled: () => hasDoc() && (tab()?.edits.annots.some((a) => a.kind === "redact") ?? false),
+        action: () => {
+          const current = tab();
+          if (current) void session.applyRedactions(current);
+        },
       }),
       item({
         id: "file.optimize",
