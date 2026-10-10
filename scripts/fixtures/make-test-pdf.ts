@@ -5,7 +5,7 @@
  * actually independent rather than sharing one document's state.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, StandardFonts, degrees, rgb } from "pdf-lib";
 
 import { makePng } from "./png.ts";
 
@@ -59,6 +59,33 @@ for (const [name, title, heading, pages] of [
 ] as const) {
   writeFileSync(`${OUT_DIR}/${name}`, await build(title, heading, pages));
   console.log(`wrote ${OUT_DIR}/${name}`);
+}
+
+// Scans to clean up: a page scanned 3° crooked, and a phone photo of an
+// A4-shaped sheet lying at an angle on a dark desk.
+{
+  const doc = await PDFDocument.create();
+  doc.setTitle("Scans");
+  const font = doc.embedStandardFont(StandardFonts.Helvetica);
+  const tilted = doc.addPage([612, 792]);
+  const t = (3 * Math.PI) / 180;
+  [...body, ...body].filter(Boolean).forEach((line, n) => {
+    // Turn each line's start about the page centre, and the text with it.
+    const dx = 64 - 306;
+    const dy = 680 - n * 26 - 396;
+    tilted.drawText(line, {
+      x: 306 + dx * Math.cos(t) - dy * Math.sin(t),
+      y: 396 + dx * Math.sin(t) + dy * Math.cos(t),
+      size: 13,
+      font,
+      rotate: degrees(3),
+    });
+  });
+  const photo = doc.addPage([612, 792]);
+  photo.drawRectangle({ x: 0, y: 0, width: 612, height: 792, color: rgb(0.22, 0.22, 0.24) });
+  photo.drawSvgPath("M100 100 L500 120 L510 686 L90 666 Z", { x: 0, y: 792, color: rgb(0.96, 0.96, 0.95) });
+  writeFileSync(`${OUT_DIR}/scan.pdf`, await doc.save());
+  console.log(`wrote ${OUT_DIR}/scan.pdf`);
 }
 
 // A one-page form, for filling in: a text field and a checkbox.

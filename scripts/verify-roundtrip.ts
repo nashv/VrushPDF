@@ -26,6 +26,7 @@ import {
   PDFString,
   StandardFonts,
   concatTransformationMatrix,
+  degrees,
   pushGraphicsState,
 } from "pdf-lib";
 
@@ -44,6 +45,9 @@ import { detectBlocks, type TextRun } from "../src/lib/content/blocks.ts";
 import { createFreeText, createRedact, freeTextRectAt } from "../src/lib/annotations/create.ts";
 import { applyRedactionsToDocument, sanitizeContentStream } from "../src/lib/annotations/redact.ts";
 import { addOcrText, embedOcrFont, type OcrWord } from "../src/lib/annotations/ocrText.ts";
+import { replaceWithImage } from "../src/lib/annotations/replacePage.ts";
+import { detectDocumentQuad, detectSkew, type Gray } from "../src/lib/scan/analysis.ts";
+import { homography, project, rotateAbout, sheetSizeFor } from "../src/lib/scan/geometry.ts";
 import { parsePageRange, extractPages, splitByInterval } from "../src/lib/annotations/split.ts";
 import { generateHeadersFooters } from "../src/lib/annotations/headersFooters.ts";
 import { generateWatermarks } from "../src/lib/annotations/watermark.ts";
@@ -63,6 +67,7 @@ import {
   type AnnotKind,
   type PageEntry,
   type Quad,
+  transformAnnot,
 } from "../src/lib/annotations/types.ts";
 
 const MAIN = "main";
@@ -1352,6 +1357,113 @@ async function main() {
     const modes = ops.fnArray.flatMap((fn, i) => (fn === pdfjs.OPS.setTextRenderingMode ? [ops.argsArray[i][0]] : []));
     check("the layer is invisible (render mode 3), so the page looks unchanged", () => {
       assert.deepEqual(modes, [3]);
+    });
+  }
+
+  console.log("\nScan correction…");
+  {
+    const white = (width: number, height: number, fill = 255): Gray => ({
+      width,
+      height,
+      data: new Uint8Array(width * height).fill(fill),
+    });
+    /** Word-like dashes along text lines tilted by `degrees` (rising right). */
+    const tiltedText = (degrees: number) => {
+      const img = white(800, 1000);
+      const t = Math.tan((degrees * Math.PI) / 180);
+      for (let line = 0; line < 25; line++) {
+        const y0 = 120 + line * 30;
+        for (let x = 80; x < 720; x++) {
+          if ((x >> 4) % 4 === 3) continue; // word gaps
+          const y = Math.round(y0 - (x - 400) * t);
+          for (let dy = 0; dy < 4; dy++) img.data[(y + dy) * img.width + x] = 20;
+        }
+      }
+      return img;
+    };
+    for (const degrees of [3, -2, 0]) {
+      check(`detects a ${degrees}° tilt`, () => assertClose("skew", detectSkew(tiltedText(degrees)), degrees, 0.15));
+    }
+    check("a blank page has no tilt", () => assert.equal(detectSkew(white(400, 500)), 0));
+
+    // A light sheet photographed at an angle on a dark desk.
+    const corners = [
+      { x: 90, y: 70 },
+      { x: 520, y: 110 },
+      { x: 560, y: 730 },
+      { x: 60, y: 690 },
+    ];
+    const photo = white(600, 800, 60);
+    const inside = (x: number, y: number) =>
+      corners.every((a, i) => {
+        const b = corners[(i + 1) % 4];
+        return (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x) >= 0;
+      });
+    for (let y = 0; y < 800; y++) for (let x = 0; x < 600; x++) if (inside(x, y)) photo.data[y * 600 + x] = 230;
+    const quad = detectDocumentQuad(photo);
+    check("finds the corners of a photographed sheet", () => {
+      assert.ok(quad, "no quad found");
+      quad!.forEach((c, i) => {
+        assertClose(`corner ${i} x`, c.x, corners[i].x / 600, 0.01);
+        assertClose(`corner ${i} y`, c.y, corners[i].y / 800, 0.01);
+      });
+    });
+    check("a page that fills the frame needs no perspective fix", () => assert.equal(detectDocumentQuad(tiltedText(0)), null));
+
+    const rect = [
+      { x: 0, y: 0 },
+      { x: 1000, y: 0 },
+      { x: 1000, y: 1400 },
+      { x: 0, y: 1400 },
+    ];
+    const h = homography(corners, rect)!;
+    check("the homography maps each photographed corner onto the sheet", () => {
+      corners.forEach((c, i) => {
+        const p = project(h, c);
+        assertClose(`corner ${i} x`, p.x, rect[i].x, 1e-6);
+        assertClose(`corner ${i} y`, p.y, rect[i].y, 1e-6);
+      });
+    });
+    check("an A4-shaped document comes out as A4", () => {
+      const size = sheetSizeFor([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 141.4 }, { x: 0, y: 141.4 }]);
+      assertClose("width", size.width, 595.28, 0.01);
+      assertClose("height", size.height, 841.89, 0.01);
+    });
+    check("turning about the centre is the canvas's clockwise turn", () => {
+      const p = rotateAbout({ x: 10, y: 0 }, { x: 0, y: 0 }, 90);
+      assertClose("x", p.x, 0, 1e-9);
+      assertClose("y", p.y, 10, 1e-9);
+    });
+
+    const shift = (p: { x: number; y: number }) => ({ x: p.x + 10, y: p.y * 2 });
+    const pages = [0, 1, 2].map((i) => ({ id: `p${i}`, sourceDocId: MAIN, srcIndex: i, rotation: 0 as const }));
+    const fixtures = makeAnnots(pages);
+    const box = fixtures.find((a) => a.kind === "square")!;
+    const ink = fixtures.find((a) => a.kind === "ink")!;
+    check("annotations move with their page's content", () => {
+      const moved = transformAnnot(box, shift) as typeof box & { rect: { x: number; y: number; w: number; h: number } };
+      const before = (box as typeof moved).rect;
+      assert.deepEqual(moved.rect, { x: before.x + 10, y: before.y * 2, w: before.w, h: before.h * 2 });
+      const movedInk = transformAnnot(ink, shift) as typeof ink & { paths: { x: number; y: number }[][] };
+      const firstBefore = (ink as typeof movedInk).paths[0][0];
+      assert.deepEqual(movedInk.paths[0][0], shift(firstBefore));
+    });
+
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([612, 792]);
+    page.drawText("Old scan text", { x: 72, y: 700, size: 14, font: await doc.embedFont(StandardFonts.Helvetica) });
+    page.setRotation(degrees(90));
+    await replaceWithImage(doc, page, { bytes: makePng(4, 2, [10, 20, 30, 255]), mime: "image/png" }, 595, 842);
+    const replaced = await doc.save();
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const loaded = await (await pdfjs.getDocument({ data: replaced.slice(), verbosity: 0 }).promise).getPage(1);
+    const ops = await loaded.getOperatorList();
+    const text = await loaded.getTextContent();
+    check("a corrected page is just the new image, at the new size, upright", () => {
+      assert.deepEqual(loaded.view, [0, 0, 595, 842]);
+      assert.equal(loaded.rotate, 0);
+      assert.ok(ops.fnArray.includes(pdfjs.OPS.paintImageXObject), "no image drawn");
+      assert.equal(text.items.length, 0, "the old text is still there");
     });
   }
 

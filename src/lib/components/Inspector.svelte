@@ -501,6 +501,16 @@
           <Icon name="front" /> Front
         </button>
       {/if}
+      <button
+        class="btn outlined"
+        title="New {KIND_LABEL[annot.kind].toLowerCase()} annotations will look like this one"
+        onclick={() => {
+          viewer.useAsDefault(annot);
+          session.notify(`Default style for ${KIND_LABEL[annot.kind].toLowerCase()} updated.`);
+        }}
+      >
+        <Icon name="check" /> Use as default
+      </button>
       <span class="spacer"></span>
       <button
         class="btn danger"
@@ -811,7 +821,9 @@
 
   footer {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
+    gap: 6px;
     margin-top: auto;
     padding-top: 6px;
   }

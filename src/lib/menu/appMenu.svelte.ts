@@ -160,6 +160,21 @@ function fileMenu(recentsSubmenu: Submenu, quit: Spec[]): Spec {
         action: () => session.openOcrDialog(),
       }),
       item({
+        id: "file.straighten",
+        label: "Straighten Scanned Pages…",
+        enabled: hasDoc,
+        action: () => session.openStraightenDialog(),
+      }),
+      item({
+        id: "file.perspective",
+        label: "Correct Perspective…",
+        enabled: hasDoc,
+        action: () => {
+          const current = tab();
+          if (current) session.startPerspective(current);
+        },
+      }),
+      item({
         id: "file.watermark",
         label: "Add Watermark…",
         enabled: hasDoc,

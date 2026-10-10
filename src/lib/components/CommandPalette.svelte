@@ -152,6 +152,22 @@
         action: () => session.openOcrDialog(),
       },
       {
+        id: "doc-straighten",
+        title: "Straighten Scanned Pages (Deskew)…",
+        category: "Document",
+        icon: "straighten",
+        action: () => session.openStraightenDialog(),
+      },
+      {
+        id: "doc-perspective",
+        title: "Correct Perspective of Current Page…",
+        category: "Document",
+        icon: "perspective",
+        action: () => {
+          if (workspace.active) session.startPerspective(workspace.active);
+        },
+      },
+      {
         id: "doc-headers-footers",
         title: "Add Headers, Footers & Bates Numbers…",
         category: "Document",

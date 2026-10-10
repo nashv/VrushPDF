@@ -22,6 +22,7 @@ const OUT_DIR = "/tmp/vrushpdf-test";
 const PDF_PATH = `${OUT_DIR}/report.pdf`;
 const PDF_PATH_2 = `${OUT_DIR}/appendix.pdf`;
 const FORM_PATH = `${OUT_DIR}/form.pdf`;
+const SCAN_PATH = `${OUT_DIR}/scan.pdf`;
 const STAMP_PNG_PATH = `${OUT_DIR}/stamp.png`;
 
 const BROWSERS = [
@@ -396,6 +397,7 @@ async function main() {
     [PDF_PATH]: readFileSync(PDF_PATH).toString("base64"),
     [PDF_PATH_2]: readFileSync(PDF_PATH_2).toString("base64"),
     [FORM_PATH]: readFileSync(FORM_PATH).toString("base64"),
+    [SCAN_PATH]: readFileSync(SCAN_PATH).toString("base64"),
     [STAMP_PNG_PATH]: readFileSync(STAMP_PNG_PATH).toString("base64"),
   };
 
@@ -678,6 +680,39 @@ async function main() {
     check("typing a font size into the properties panel applies it", () =>
       assert.ok(Math.abs(bigger.font / textBox.font - 2.5) < 0.01, `font ${textBox.font} -> ${bigger.font}`),
     );
+    // "Use as default" makes this box's look the text tool's default...
+    await cdp.eval("[...document.querySelectorAll('.inspector button')].find((b) => b.textContent.includes('Use as default')).click()");
+    await cdp.eval("document.querySelector('[title^=\"Text box\"]').click()");
+    await sleep(150);
+    const toolFont = await cdp.eval<string>("document.querySelector('.style input[aria-label=\"Font size\"]')?.value ?? ''");
+    check("Use as default makes a text box's style the text tool's default", () => assert.equal(toolFont, "30"));
+    // ...and Settings ▸ Reset all puts the shipped defaults back.
+    await cdp.eval("document.querySelector('[title=\"Command Palette (⌘K)\"]').click()");
+    await sleep(150);
+    await cdp.eval(`(() => {
+      const input = document.querySelector('.palette .search-input');
+      input.value = 'Settings';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await sleep(150);
+    await cdp.eval("[...document.querySelectorAll('.palette .cmd-item')].find((b) => b.textContent.includes('Settings')).click()");
+    const settingsFont = await waitFor(
+      "the defaults table",
+      () => cdp.eval<string>("document.querySelector('.row[data-kind=\"freetext\"] input[aria-label=\"Text box font size\"]')?.value ?? ''"),
+      (v) => v !== "",
+    ).catch(() => "");
+    check("Settings lists the defaults, with the saved text box size", () => assert.equal(settingsFont, "30"));
+    await cdp.eval("[...document.querySelectorAll('.dialog button')].find((b) => b.textContent.trim() === 'Reset all').click()");
+    await sleep(150);
+    const resetFont = await cdp.eval<string>("document.querySelector('.row[data-kind=\"freetext\"] input[aria-label=\"Text box font size\"]')?.value ?? ''");
+    check("Reset all restores the shipped defaults", () => assert.equal(resetFont, "12"));
+    await cdp.eval("[...document.querySelectorAll('.dialog button')].find((b) => b.textContent.trim() === 'Done').click()");
+    await cdp.eval("document.querySelector('[title^=\"Select (\"]').click()");
+    await sleep(150);
+    // The box itself stays selected through all that, for the next checks.
+    await click({ x: bigger.x + bigger.w / 2, y: bigger.y + 6 });
+    await sleep(150);
+
     const clamped = await cdp.eval<string>(`(() => {
       const input = document.querySelector('.inspector input[aria-label="Font size"]');
       input.value = "9000";
@@ -2081,6 +2116,95 @@ async function main() {
     await sleep(100);
     const popupGone = await cdp.eval<boolean>("!document.querySelector('.ocr-result')");
     check("leaving the OCR tool closes its result", () => assert.ok(popupGone));
+
+    // ---------------------------------------------------------- scan correction
+    console.log("\nscan correction");
+
+    await cdp.eval(`window.__nextOpen = [${JSON.stringify(SCAN_PATH)}]`);
+    await cdp.eval("document.querySelector('.tabbar .add').click()");
+    await waitFor(
+      "the scans' text layer",
+      () => cdp.eval<number>("document.querySelectorAll('.page[data-page-index=\"0\"] .textLayer span').length"),
+      (n) => n > 0,
+      25000,
+    ).catch(() => 0);
+    const contextMenuOn = (index: number, item: string) =>
+      cdp.eval(`(async () => {
+        const page = document.querySelector('.page[data-page-index="${index}"]');
+        page.scrollIntoView({ block: "center" });
+        await new Promise((r) => setTimeout(r, 300));
+        const box = page.getBoundingClientRect();
+        page.dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true, cancelable: true, clientX: box.left + 12, clientY: box.bottom - 12,
+        }));
+        await new Promise((r) => setTimeout(r, 200));
+        [...document.querySelectorAll('.context-menu .menu-item')].find((b) => b.textContent.includes(${JSON.stringify(item)}))?.click();
+      })()`);
+
+    // Straighten: the page had text, so its words are recognised again after.
+    await contextMenuOn(0, "Straighten Page");
+    const straightened = await waitFor("straightening", toastText, (t) => /Straightened|already straight|Could not/.test(t), 60000).catch(toastText);
+    const angle = Number(/Straightened 1 page\(s\) \((-?[\d.]+)°\)/.exec(straightened)?.[1] ?? NaN);
+    check("Straighten measures the scan's 3° tilt and levels it", () =>
+      assert.ok(Math.abs(angle - 3) <= 0.25, `toast: ${straightened}`),
+    );
+    const reread = await waitFor(
+      "the straightened page's text",
+      () => cdp.eval<string>("[...document.querySelectorAll('.page[data-page-index=\"0\"] .textLayer span')].map((s) => s.textContent).join(' ')"),
+      (t) => /quick brown/.test(t),
+      90000,
+    ).catch(() => "");
+    check("a straightened page that had text is made searchable again", () =>
+      assert.match(reread, /quick brown/, `text: ${reread.slice(0, 120) || "(none)"}`),
+    );
+
+    // Perspective: the sheet's corners are found on the photo and applied.
+    await contextMenuOn(1, "Correct Perspective");
+    const hint = await waitFor(
+      "corner detection",
+      () => cdp.eval<string>("document.querySelector('.perspective .hint')?.textContent?.trim() ?? ''"),
+      (t) => t !== "" && !t.startsWith("Looking"),
+      20000,
+    ).catch(() => "");
+    const cornersSeen = await cdp.eval<{ x: number; y: number }[]>(`(() => {
+      const page = document.querySelector('.page[data-page-index="1"]').getBoundingClientRect();
+      return [...document.querySelectorAll('.perspective .corner')].map((c) => {
+        const r = c.getBoundingClientRect();
+        return { x: (r.left + r.width / 2 - page.left) / page.width, y: (r.top + r.height / 2 - page.top) / page.height };
+      });
+    })()`);
+    const expectedCorners = [[100, 100], [500, 120], [510, 686], [90, 666]].map(([x, y]) => ({ x: x / 612, y: y / 792 }));
+    check("the photographed sheet's corners are found", () => {
+      assert.match(hint, /Check the corners/, `hint: ${hint}`);
+      assert.equal(cornersSeen.length, 4);
+      cornersSeen.forEach((c, i) => {
+        assert.ok(
+          Math.abs(c.x - expectedCorners[i].x) < 0.02 && Math.abs(c.y - expectedCorners[i].y) < 0.02,
+          `corner ${i} at ${c.x.toFixed(3)},${c.y.toFixed(3)}; expected ${expectedCorners[i].x.toFixed(3)},${expectedCorners[i].y.toFixed(3)}`,
+        );
+      });
+    });
+    await cdp.eval("document.querySelector('.perspective .ocr input').click()"); // skip OCR: nothing to read
+    await cdp.eval("document.querySelector('.perspective .btn.primary').click()");
+    const corrected = await waitFor("perspective correction", toastText, (t) => /Corrected the perspective|Could not|usable/.test(t), 60000).catch(toastText);
+    check("applying corrects the page", () => assert.match(corrected, /Corrected the perspective of page 2/, `toast: ${corrected}`));
+    const aspect = await waitFor(
+      "the corrected page's new shape",
+      () => cdp.eval<number>(`(() => {
+        const r = document.querySelector('.page[data-page-index="1"]').getBoundingClientRect();
+        return r.height / r.width;
+      })()`),
+      (a) => Math.abs(a - 842 / 595) < 0.01,
+      15000,
+    ).catch(() => 0);
+    check("the A4-shaped sheet becomes an A4 page", () =>
+      assert.ok(Math.abs(aspect - 842 / 595) < 0.01, `aspect ${aspect.toFixed(3)}`),
+    );
+    const overlayGone = await cdp.eval<boolean>("!document.querySelector('.perspective')");
+    check("the corner handles go away once applied", () => assert.ok(overlayGone));
+    await cdp.send("Page.captureScreenshot", { format: "png" }).then((r: any) =>
+      writeFileSync(`${OUT_DIR}/ui-scan.png`, Buffer.from(r.data, "base64")),
+    );
 
     console.log("\nforms");
 

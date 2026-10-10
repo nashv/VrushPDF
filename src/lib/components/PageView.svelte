@@ -67,7 +67,7 @@
     toViewportRect,
     viewportFor,
   } from "$lib/pdf/render";
-  import { loadOcrLanguages, recognizeRegion } from "$lib/ocr/engine";
+  import { loadOcrLanguages, pageHasText, recognizeRegion } from "$lib/ocr/engine";
   import { clearSelection, mountTextLayer, selectionOnPage, type TextLayerHandle } from "$lib/pdf/textlayer";
   import type { PDFPageProxy } from "$lib/pdf/pdfjs";
   import { images } from "$lib/state/images.svelte";
@@ -81,6 +81,8 @@
   import PageContextMenu from "./PageContextMenu.svelte";
   import CommentPopup from "./CommentPopup.svelte";
   import OcrResult from "./OcrResult.svelte";
+  import PerspectiveOverlay from "./PerspectiveOverlay.svelte";
+  import { detectCorners } from "$lib/scan/correct";
 
   let {
     tab,
@@ -845,6 +847,18 @@
     edits.add(pasted, pasted.length > 1 ? "Paste annotations" : "Paste annotation");
   }
 
+  /** One page, no dialog: keep it searchable if it had text before. */
+  async function onContextMenuStraighten() {
+    contextMenuState = null;
+    const hadText = await pageHasText(await doc.page(entry.sourceDocId, entry.srcIndex));
+    await session.straightenPages(tab, { pageIndices: [pageIndex], reOcr: hadText, langs: loadOcrLanguages() });
+  }
+
+  function onContextMenuPerspective() {
+    contextMenuState = null;
+    session.startPerspective(tab, pageIndex);
+  }
+
   function onContextMenuDeleteAnnot() {
     if (!contextMenuState?.targetAnnot) return;
     const id = contextMenuState.targetAnnot.id;
@@ -1073,10 +1087,22 @@
         onEditComment={onContextMenuEditComment}
         onCopyAnnot={onContextMenuCopyAnnot}
         onPasteAnnot={hasHeldAnnots() ? onContextMenuPasteAnnot : undefined}
+        onStraighten={onContextMenuStraighten}
+        onPerspective={onContextMenuPerspective}
         onDeleteAnnot={onContextMenuDeleteAnnot}
         onClose={() => {
           contextMenuState = null;
         }}
+      />
+    {/if}
+
+    {#if viewport && session.perspective?.tab === tab && session.perspective.pageId === entry.id}
+      <PerspectiveOverlay
+        width={viewport.width}
+        height={viewport.height}
+        detect={async () => detectCorners(await doc.page(entry.sourceDocId, entry.srcIndex), entry.rotation)}
+        onApply={(quad, options) => void session.correctPerspective(tab, entry.id, quad, options)}
+        onCancel={() => session.cancelPerspective()}
       />
     {/if}
 

@@ -131,6 +131,38 @@ export function pdfPerCssPixel(viewport: PageViewport): number {
   return 1 / viewport.scale;
 }
 
+// --------------------------------------------------------------- page images
+
+/**
+ * Render a page the way the user sees it (their rotation included) at `dpi`,
+ * for OCR and scan correction. `maxEdge` caps the larger side in pixels.
+ * `withAnnotations` includes annotations pdf.js draws from the file; leave it
+ * off when the result replaces the page or becomes text, so they aren't
+ * baked in or read twice.
+ */
+export async function renderPageImage(
+  page: PDFPageProxy,
+  rotation: Rotation,
+  { dpi, maxEdge, withAnnotations = false }: { dpi: number; maxEdge: number; withAnnotations?: boolean },
+) {
+  const base = viewportFor(page, 1, rotation);
+  const scale = Math.min(dpi / 72, maxEdge / Math.max(base.width, base.height));
+  const viewport = viewportFor(page, scale, rotation);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.floor(viewport.width));
+  canvas.height = Math.max(1, Math.floor(viewport.height));
+  if (!canvas.getContext("2d", { alpha: false })) throw new Error("could not acquire a 2D canvas context");
+
+  await page.render({
+    canvas,
+    viewport,
+    background: "#ffffff",
+    annotationMode: withAnnotations ? pdfjs.AnnotationMode.ENABLE_STORAGE : pdfjs.AnnotationMode.DISABLE,
+  }).promise;
+  return { canvas, viewport };
+}
+
 // ------------------------------------------------------------------ thumbnails
 
 /** Render a page to a PNG blob URL. Caller owns the URL and must revoke it. */

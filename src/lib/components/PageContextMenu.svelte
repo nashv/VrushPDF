@@ -32,6 +32,8 @@
     onCopyAnnot,
     onPasteAnnot,
     onDeleteAnnot,
+    onStraighten,
+    onPerspective,
     onClose,
   }: {
     x: number;
@@ -56,13 +58,16 @@
     /** Paste copied annotations at the click point; absent when nothing is copied. */
     onPasteAnnot?: () => void;
     onDeleteAnnot: () => void;
+    /** Scan clean-up for this page. */
+    onStraighten?: () => void;
+    onPerspective?: () => void;
     onClose: () => void;
   } = $props();
 
   let menuEl: HTMLDivElement | undefined = $state();
 
   const menuWidth = 190;
-  const menuHeight = $derived(hasSelection ? 200 : hasTargetAnnot ? 120 : 120);
+  const menuHeight = $derived(hasSelection ? 200 : hasTargetAnnot ? 120 : 190);
 
   const left = $derived(
     x + menuWidth > pageWidth ? Math.max(8, x - menuWidth) : Math.max(8, x)
@@ -168,6 +173,21 @@
       <button type="button" class="menu-item" role="menuitem" onclick={onMarkRedact}>
         <Icon name="redact" size={15} />
         <span>Mark Redaction</span>
+      </button>
+    {/if}
+    {#if onStraighten || onPerspective}
+      <div class="menu-divider"></div>
+    {/if}
+    {#if onStraighten}
+      <button type="button" class="menu-item" role="menuitem" onclick={onStraighten}>
+        <Icon name="straighten" size={15} />
+        <span>Straighten Page</span>
+      </button>
+    {/if}
+    {#if onPerspective}
+      <button type="button" class="menu-item" role="menuitem" onclick={onPerspective}>
+        <Icon name="perspective" size={15} />
+        <span>Correct Perspective…</span>
       </button>
     {/if}
     {#if onPasteAnnot}

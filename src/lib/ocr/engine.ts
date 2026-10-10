@@ -15,8 +15,8 @@ import type { Worker as TesseractWorker } from "tesseract.js";
 
 import type { OcrWord } from "$lib/annotations/ocrText";
 import type { Rect, Rotation } from "$lib/annotations/types";
-import { pdfjs, type PDFPageProxy } from "$lib/pdf/pdfjs";
-import { viewportFor } from "$lib/pdf/render";
+import type { PDFPageProxy } from "$lib/pdf/pdfjs";
+import { renderPageImage } from "$lib/pdf/render";
 
 /** Must match `LANGUAGES` in `scripts/copy-ocr-assets.mjs`. */
 export const OCR_LANGUAGES = [
@@ -126,29 +126,13 @@ function enqueue<T>(job: () => Promise<T>): Promise<T> {
 }
 
 /**
- * Render a page the way the user sees it (their rotation included, so a scan
- * they turned upright is read upright) at OCR resolution. `withAnnotations`
- * includes annotations pdf.js draws from the file; the searchable layer leaves
- * them out so their text isn't added to the page twice.
+ * Render a page the way the user sees it (so a scan they turned upright is
+ * read upright) at OCR resolution. The searchable layer leaves out
+ * annotations, so their text isn't added to the page twice; the region tool
+ * reads what the user sees.
  */
-async function renderForOcr(page: PDFPageProxy, rotation: Rotation, withAnnotations: boolean) {
-  const base = viewportFor(page, 1, rotation);
-  const scale = Math.min(OCR_DPI / 72, MAX_EDGE_PX / Math.max(base.width, base.height));
-  const viewport = viewportFor(page, scale, rotation);
-
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.floor(viewport.width));
-  canvas.height = Math.max(1, Math.floor(viewport.height));
-  if (!canvas.getContext("2d", { alpha: false })) throw new Error("could not acquire a 2D canvas context");
-
-  await page.render({
-    canvas,
-    viewport,
-    background: "#ffffff",
-    annotationMode: withAnnotations ? pdfjs.AnnotationMode.ENABLE_STORAGE : pdfjs.AnnotationMode.DISABLE,
-  }).promise;
-  return { canvas, viewport };
-}
+const renderForOcr = (page: PDFPageProxy, rotation: Rotation, withAnnotations: boolean) =>
+  renderPageImage(page, rotation, { dpi: OCR_DPI, maxEdge: MAX_EDGE_PX, withAnnotations });
 
 interface Box {
   x0: number;

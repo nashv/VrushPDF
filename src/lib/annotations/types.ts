@@ -310,6 +310,42 @@ export function scaleAnnotToRect<T extends Annot>(a: T, target: Rect): T {
   return a;
 }
 
+/**
+ * Move an annotation through an arbitrary point transform, e.g. into a page
+ * that was straightened or had its perspective corrected. Boxes become the
+ * bounding box of their transformed corners; everything else maps point by
+ * point.
+ */
+export function transformAnnot<T extends Annot>(a: T, f: (p: Point) => Point): T {
+  const box = (r: Rect): Rect => {
+    const corners = [
+      f({ x: r.x, y: r.y }),
+      f({ x: r.x + r.w, y: r.y }),
+      f({ x: r.x, y: r.y + r.h }),
+      f({ x: r.x + r.w, y: r.y + r.h }),
+    ];
+    const x = Math.min(...corners.map((c) => c.x));
+    const y = Math.min(...corners.map((c) => c.y));
+    return { x, y, w: Math.max(...corners.map((c) => c.x)) - x, h: Math.max(...corners.map((c) => c.y)) - y };
+  };
+  const quad = (q: Quad): Quad => {
+    const [p1, p2, p3, p4] = [
+      f({ x: q.x1, y: q.y1 }),
+      f({ x: q.x2, y: q.y2 }),
+      f({ x: q.x3, y: q.y3 }),
+      f({ x: q.x4, y: q.y4 }),
+    ];
+    return { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, x3: p3.x, y3: p3.y, x4: p4.x, y4: p4.y };
+  };
+  if (isRedact(a)) return { ...a, rect: box(a.rect), quads: a.quads?.map(quad) };
+  if (hasRect(a)) return { ...a, rect: box(a.rect) };
+  if (isNote(a)) return { ...a, point: f(a.point) };
+  if (isLineShape(a)) return { ...a, from: f(a.from), to: f(a.to) };
+  if (isInk(a)) return { ...a, paths: a.paths.map((path) => path.map(f)) };
+  if (isTextMarkup(a)) return { ...a, quads: a.quads.map(quad) };
+  return a;
+}
+
 /** Annotations the selection UI offers resize handles for. */
 export const isResizable = (a: Annot): boolean => hasRect(a) || isInk(a);
 

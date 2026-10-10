@@ -18,11 +18,14 @@ import { importAnnots } from "$lib/annotations/import";
 import { optimizePdf, type OptimizeOptions } from "$lib/annotations/optimize";
 import { addOcrText, embedOcrFont, markOcrProducer, type OcrWord } from "$lib/annotations/ocrText";
 import { applyRedactionsToDocument, type RedactTarget } from "$lib/annotations/redact";
+import { replaceWithImage } from "$lib/annotations/replacePage";
 import { buildSavedPdf, type SourceBytes } from "$lib/annotations/save";
-import { isRedact, isStamp, type Annot, type PageEntry } from "$lib/annotations/types";
+import { isRedact, isStamp, transformAnnot, type Annot, type PageEntry } from "$lib/annotations/types";
 import type { ImageSource } from "$lib/annotations/write";
 import { pageHasText, recognizePage, type OcrLanguage } from "$lib/ocr/engine";
 import { PasswordRequired } from "$lib/pdf/pdfjs";
+import type { NormQuad } from "$lib/scan/analysis";
+import { correctPage, measureSkew, MIN_SKEW_DEGREES, type Correction, type CorrectedPage } from "$lib/scan/correct";
 import { printPdf } from "$lib/pdf/print";
 import {
   pickImage,
@@ -98,6 +101,31 @@ class Session {
   ocrOpen = $state(false);
   /** Set while a cancellable job runs; the busy indicator shows a Cancel button. */
   cancelBusy = $state<(() => void) | null>(null);
+
+  /** True while the straighten-pages dialog is up. */
+  straightenOpen = $state(false);
+  /** The page whose corners are being placed for perspective correction. */
+  perspective = $state<{ tab: DocumentTab; pageId: string } | null>(null);
+
+  openStraightenDialog() {
+    this.straightenOpen = true;
+  }
+
+  closeStraightenDialog() {
+    this.straightenOpen = false;
+  }
+
+  /** Show corner handles on a page (the current one by default). */
+  startPerspective(tab: DocumentTab, pageIndex = tab.view.currentPage) {
+    const entry = tab.edits.pages[pageIndex];
+    if (!entry || !license.allow("Correcting perspective")) return;
+    viewer.setTool("select");
+    this.perspective = { tab, pageId: entry.id };
+  }
+
+  cancelPerspective() {
+    this.perspective = null;
+  }
 
   openOcrDialog() {
     this.ocrOpen = true;
@@ -603,6 +631,127 @@ class Session {
     } finally {
       this.cancelBusy = null;
     }
+  }
+
+  /**
+   * Straighten tilted scans. Each page's tilt is measured; pages already
+   * level (under 0.1°) are left alone. `pageIndices` are plan indices.
+   */
+  async straightenPages(
+    tab: DocumentTab,
+    options: { pageIndices: number[]; reOcr: boolean; langs: OcrLanguage[] },
+  ): Promise<boolean> {
+    if (!tab.isOpen || options.pageIndices.length === 0) return false;
+    if (!license.allow("Straightening pages")) return false;
+
+    let cancelled = false;
+    this.cancelBusy = () => {
+      cancelled = true;
+    };
+    let jobs: { pageIndex: number; correction: Correction }[] | null;
+    try {
+      jobs = await this.#withBusy("Measuring tilt…", async () => {
+        const found: { pageIndex: number; correction: Correction }[] = [];
+        for (const [n, index] of options.pageIndices.entries()) {
+          if (cancelled) return null;
+          const entry = tab.edits.pages[index];
+          if (!entry) continue;
+          this.busy = `Measuring tilt… page ${index + 1} (${n + 1} of ${options.pageIndices.length})`;
+          const page = await tab.doc.page(entry.sourceDocId, entry.srcIndex);
+          const degrees = await measureSkew(page, entry.rotation);
+          if (Math.abs(degrees) >= MIN_SKEW_DEGREES) found.push({ pageIndex: index, correction: { kind: "deskew", degrees } });
+        }
+        return found;
+      });
+    } finally {
+      this.cancelBusy = null;
+    }
+    if (cancelled) {
+      this.notify("Straightening cancelled. The document was not changed.");
+      return false;
+    }
+    if (!jobs) return false;
+    if (jobs.length === 0) {
+      this.notify("Those pages are already straight.");
+      return false;
+    }
+
+    const ok = await this.#applyCorrections(tab, jobs, "Straightening pages…");
+    if (!ok) return false;
+    const angles = jobs.map((j) => (j.correction.kind === "deskew" ? `${j.correction.degrees.toFixed(1)}°` : "")).join(", ");
+    const skipped = options.pageIndices.length - jobs.length;
+    this.notify(
+      `Straightened ${jobs.length} page(s) (${angles}).${skipped > 0 ? ` ${skipped} were already straight.` : ""}`,
+    );
+    if (options.reOcr) {
+      await this.makeSearchable(tab, { pageIndices: jobs.map((j) => j.pageIndex), langs: options.langs, skipPagesWithText: false });
+    }
+    return true;
+  }
+
+  /** Warp the page's document, marked by `quad`, onto an upright sheet. */
+  async correctPerspective(
+    tab: DocumentTab,
+    pageId: string,
+    quad: NormQuad,
+    options: { reOcr: boolean; langs: OcrLanguage[] },
+  ): Promise<boolean> {
+    const pageIndex = tab.edits.pageIndexOf(pageId);
+    if (!tab.isOpen || pageIndex < 0) return false;
+    this.perspective = null;
+    const ok = await this.#applyCorrections(tab, [{ pageIndex, correction: { kind: "perspective", quad } }], "Correcting perspective…");
+    if (!ok) return false;
+    this.notify(`Corrected the perspective of page ${pageIndex + 1}.`);
+    if (options.reOcr) {
+      await this.makeSearchable(tab, { pageIndices: [pageIndex], langs: options.langs, skipPagesWithText: false });
+    }
+    return true;
+  }
+
+  /**
+   * Render each page's correction and rewrite the document with the new page
+   * images. Annotations on those pages move with their content. Like OCR and
+   * redaction, the result is reopened as the tab's unsaved document.
+   */
+  async #applyCorrections(
+    tab: DocumentTab,
+    jobs: { pageIndex: number; correction: Correction }[],
+    label: string,
+  ): Promise<boolean> {
+    const done = await this.#withBusy(label, async () => {
+      const corrected = new Map<number, CorrectedPage>();
+      for (const [n, job] of jobs.entries()) {
+        const entry = tab.edits.pages[job.pageIndex];
+        if (!entry) continue;
+        if (jobs.length > 1) this.busy = `${label.replace(/…$/, "")} page ${job.pageIndex + 1} (${n + 1} of ${jobs.length})…`;
+        const page = await tab.doc.page(entry.sourceDocId, entry.srcIndex);
+        corrected.set(job.pageIndex, await correctPage(page, entry.rotation, job.correction));
+      }
+
+      this.busy = "Writing the corrected pages…";
+      const pages = $state.snapshot(tab.edits.pages);
+      const byPageId = new Map([...corrected].map(([index, result]) => [pages[index].id, result]));
+      const annots = ($state.snapshot(tab.edits.annots) as Annot[]).map((a) => {
+        const result = byPageId.get(a.pageId);
+        return result ? transformAnnot(a, result.mapPoint) : a;
+      });
+
+      const built = await buildSavedPdf({
+        pages,
+        annots,
+        mainDocId: MAIN_DOC,
+        getSource: this.#sourceBytes(tab),
+        resolveImage: this.#resolveImage,
+        fields: $state.snapshot(tab.edits.fields),
+      });
+      const doc = await PDFDocument.load(built.bytes, { ignoreEncryption: true, updateMetadata: false });
+      for (const [index, result] of corrected) {
+        await replaceWithImage(doc, doc.getPage(index), result.image, result.width, result.height);
+      }
+      await this.#reloadTransformed(tab, await doc.save());
+      return true;
+    });
+    return done === true;
   }
 
   /**

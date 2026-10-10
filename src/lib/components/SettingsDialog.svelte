@@ -11,6 +11,7 @@
   import { settings } from "$lib/state/settings.svelte";
   import { viewer } from "$lib/state/viewer.svelte";
   import Icon from "./Icon.svelte";
+  import StyleDefaults from "./StyleDefaults.svelte";
 
   let closeButton: HTMLButtonElement | undefined = $state();
 
@@ -95,6 +96,18 @@
     </label>
   </div>
 
+  <section class="defaults">
+    <div class="defaults-head">
+      <h3>Annotation defaults</h3>
+      <button class="btn" onclick={() => viewer.resetAllStyles()}>Reset all</button>
+    </div>
+    <p class="note muted">
+      How new annotations look. Changing a tool's style in the toolbar, or "Use as default"
+      on a selected annotation, updates these too.
+    </p>
+    <StyleDefaults />
+  </section>
+
   <footer>
     <span class="spacer"></span>
     <button bind:this={closeButton} class="btn primary" onclick={() => session.closeSettings()}>
@@ -112,7 +125,9 @@
     display: flex;
     flex-direction: column;
     gap: 14px;
-    width: min(460px, 92vw);
+    width: min(620px, 94vw);
+    max-height: 90vh;
+    overflow-y: auto;
     padding: 18px;
     transform: translate(-50%, -50%);
     border: 1px solid var(--surface-float-border);
@@ -156,6 +171,29 @@
   .note {
     font-size: 11px;
     line-height: 1.4;
+  }
+
+  .defaults {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  .defaults-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  h3 {
+    margin: 0;
+    font-size: 13px;
+  }
+
+  .defaults .note {
+    margin: 0;
   }
 
   footer {

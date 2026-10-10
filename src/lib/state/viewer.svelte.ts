@@ -2,7 +2,17 @@
  * View state, in two halves: `ViewState` belongs to a document (zoom, page,
  * scroll) and is created per tab; `viewer` is app-wide (tool, styles, panels).
  */
-import type { AnnotKind, FontFamily } from "$lib/annotations/types";
+import {
+  isBoxShape,
+  isFreeText,
+  isInk,
+  isLineShape,
+  isRedact,
+  isStamp,
+  type Annot,
+  type AnnotKind,
+  type FontFamily,
+} from "$lib/annotations/types";
 
 /**
  * Tick and cross marks for filling in forms. Not annotation kinds of their own:
@@ -171,6 +181,40 @@ function loadStyles(): Record<StyleKind, AnnotStyle> {
   return defaults;
 }
 
+/**
+ * The style an annotation was drawn with, in the toolbar's terms: the inverse
+ * of the `create*` factories in `annotations/create.ts`. Only fields that kind
+ * actually uses are returned, so applying it leaves the rest alone.
+ */
+export function styleOf(annot: Annot): { kind: StyleKind; style: Partial<AnnotStyle> } {
+  const { color, opacity } = annot;
+  if (isFreeText(annot)) {
+    return {
+      kind: "freetext",
+      style: {
+        color,
+        opacity,
+        // A text box's border takes the text colour; no border is width 0.
+        width: annot.borderColor ? annot.borderWidth : 0,
+        fill: annot.bgColor,
+        fontSize: annot.fontSize,
+        fontFamily: annot.fontFamily ?? "Helvetica",
+        bold: annot.bold ?? false,
+        italic: annot.italic ?? false,
+        align: annot.align,
+        padding: annot.padding ?? 2,
+      },
+    };
+  }
+  if (isRedact(annot)) {
+    return { kind: "redact", style: { color: annot.borderColor ?? color, fill: annot.fillColor ?? "#000000" } };
+  }
+  if (isBoxShape(annot)) return { kind: annot.kind, style: { color, opacity, width: annot.width, fill: annot.fill } };
+  if (isLineShape(annot) || isInk(annot)) return { kind: annot.kind, style: { color, opacity, width: annot.width } };
+  if (isStamp(annot)) return { kind: "stamp", style: { opacity } };
+  return { kind: annot.kind, style: { color, opacity } };
+}
+
 /** Read once at module load; the store owns it from then on. */
 const SAVED_LAYOUT = loadLayout();
 
@@ -264,6 +308,28 @@ class ViewerStore {
 
   setStyle(kind: StyleKind, patch: Partial<AnnotStyle>) {
     this.styles[kind] = { ...this.styles[kind], ...patch };
+    this.#saveStyles();
+  }
+
+  /** Back to the shipped default for one kind. */
+  resetStyle(kind: StyleKind) {
+    this.styles[kind] = defaultStyles()[kind];
+    this.#saveStyles();
+  }
+
+  resetAllStyles() {
+    this.styles = defaultStyles();
+    this.#saveStyles();
+  }
+
+  /** Make `annot`'s look the default for new annotations of its kind. */
+  useAsDefault(annot: Annot): StyleKind {
+    const { kind, style } = styleOf(annot);
+    this.setStyle(kind, style);
+    return kind;
+  }
+
+  #saveStyles() {
     try {
       globalThis.localStorage?.setItem(STYLE_KEY, JSON.stringify($state.snapshot(this.styles)));
     } catch {

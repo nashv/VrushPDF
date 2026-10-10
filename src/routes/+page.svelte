@@ -8,6 +8,7 @@
   import LicenseDialog from "$lib/components/LicenseDialog.svelte";
   import MergeDialog from "$lib/components/MergeDialog.svelte";
   import OcrDialog from "$lib/components/OcrDialog.svelte";
+  import StraightenDialog from "$lib/components/StraightenDialog.svelte";
   import OptimizeDialog from "$lib/components/OptimizeDialog.svelte";
   import PasswordDialog from "$lib/components/PasswordDialog.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
@@ -198,6 +199,10 @@
 
 {#if session.ocrOpen}
   <OcrDialog />
+{/if}
+
+{#if session.straightenOpen}
+  <StraightenDialog />
 {/if}
 
 {#if session.watermarkOpen}
