@@ -187,7 +187,7 @@ function stubSource(seeds: Record<string, string>, cliPath: string): string {
         case "settings_get": return { singleInstance: true, warnUnflattenedSignatures: true, autoUpdate: true };
         case "settings_set": return null;
         case "get_system_target": return { os: "macos", arch: "aarch64" };
-        case "check_latest_release": return JSON.stringify({ tag_name: "v0.5.10", assets: [] });
+        case "check_latest_release": return JSON.stringify({ tag_name: "v0.5.11", assets: [] });
         case "download_and_install_update": return null;
         case "install_update_payload": return null;
         case "relaunch_app": return null;
@@ -618,6 +618,129 @@ async function main() {
       }
     })()`);
     await sleep(200);
+
+    // --- annotation editing: resize handles, copy/paste, marks, typed sizes
+    console.log("\nannotation editing");
+    const click = async (pt: { x: number; y: number }) => {
+      const common = { button: "left" as const, buttons: 1, pointerType: "mouse" as const, clickCount: 1 };
+      await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", ...pt, ...common });
+      await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", ...pt, ...common });
+    };
+    const freeTextBoxes = () =>
+      cdp.eval<{ x: number; y: number; w: number; h: number; font: number }[]>(`
+        [...document.querySelectorAll('.widgets .freetext')].map((el) => {
+          const r = el.getBoundingClientRect();
+          return { x: r.x, y: r.y, w: r.width, h: r.height, font: parseFloat(el.style.fontSize) };
+        })`);
+
+    // A real click on the toolbar takes focus and commits the box; a scripted
+    // one doesn't, so blur it. Then select the box with a real click.
+    await cdp.eval("document.activeElement?.blur()");
+    await cdp.eval("document.querySelector('[title^=\"Select (\"]').click()");
+    await sleep(200);
+    const [textBox] = await freeTextBoxes();
+    await click({ x: textBox.x + textBox.w / 2, y: textBox.y + textBox.h / 2 });
+    const resizeHandle = await waitFor(
+      "resize handles on the selected text box",
+      () =>
+        cdp.eval<{ x: number; y: number; topmost: boolean } | null>(`(() => {
+          const el = document.querySelector('.handle[aria-label="Resize se"]');
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          const x = r.x + r.width / 2, y = r.y + r.height / 2;
+          return { x, y, topmost: document.elementFromPoint(x, y) === el };
+        })()`),
+      (h) => h !== null,
+    ).catch(() => null);
+    check("a selected text box shows resize handles", () => assert.ok(resizeHandle));
+    check("the resize handle is the topmost element under the pointer", () =>
+      assert.ok(resizeHandle?.topmost, "something covers the handle"),
+    );
+    if (resizeHandle) {
+      await drag(cdp, resizeHandle, { x: resizeHandle.x + 60, y: resizeHandle.y + 40 }, 8);
+      await sleep(200);
+      const [resized] = await freeTextBoxes();
+      check("dragging a corner handle resizes the text box", () => {
+        assert.ok(Math.abs(resized.w - textBox.w - 60) < 4, `width ${textBox.w} -> ${resized.w}`);
+        assert.ok(Math.abs(resized.h - textBox.h - 40) < 4, `height ${textBox.h} -> ${resized.h}`);
+        assert.ok(Math.abs(resized.x - textBox.x) < 1, "the opposite corner moved");
+      });
+    }
+
+    // Typed-in font size, beside the slider.
+    await cdp.eval(`(() => {
+      const input = document.querySelector('.inspector input[aria-label="Font size"]');
+      input.value = "30";
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    })()`);
+    await sleep(200);
+    const [bigger] = await freeTextBoxes();
+    check("typing a font size into the properties panel applies it", () =>
+      assert.ok(Math.abs(bigger.font / textBox.font - 2.5) < 0.01, `font ${textBox.font} -> ${bigger.font}`),
+    );
+    const clamped = await cdp.eval<string>(`(() => {
+      const input = document.querySelector('.inspector input[aria-label="Font size"]');
+      input.value = "9000";
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      return input.value;
+    })()`);
+    check("an out-of-range typed size is clamped", () => assert.equal(clamped, "200"));
+    await cdp.eval("document.querySelector('[title^=\"Undo\"]')?.click()");
+    await sleep(200);
+
+    // Copy and paste ride on the DOM clipboard events the Edit menu fires.
+    const beforePaste = (await freeTextBoxes()).length;
+    const copiedText = await cdp.eval<string>(`(() => {
+      const data = new DataTransfer();
+      document.body.dispatchEvent(new ClipboardEvent('copy', { clipboardData: data, bubbles: true, cancelable: true }));
+      const text = data.getData('text/plain');
+      document.body.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+      return text;
+    })()`);
+    await sleep(200);
+    const afterPaste = await freeTextBoxes();
+    check("copy puts the text box's text on the clipboard for other apps", () =>
+      assert.equal(copiedText, "Hello World"),
+    );
+    check("pasting a copied annotation adds a copy, offset from the original", () => {
+      assert.equal(afterPaste.length, beforePaste + 1);
+      const [a, b] = afterPaste.slice(-2);
+      assert.ok(b.x > a.x && b.y > a.y, `copy at ${b.x},${b.y}; original at ${a.x},${a.y}`);
+    });
+    const textUntouched = await cdp.eval<boolean>(`(() => {
+      const input = document.querySelector('.inspector input[aria-label="Font size"]');
+      input.focus();
+      const event = new ClipboardEvent('copy', { clipboardData: new DataTransfer(), bubbles: true, cancelable: true });
+      input.dispatchEvent(event);
+      input.blur();
+      return !event.defaultPrevented;
+    })()`);
+    check("copying inside a text field is left to the field", () => assert.ok(textUntouched));
+
+    // Tick and cross marks place a vector Ink mark with one click.
+    const inkCount = () => cdp.eval<number>("document.querySelectorAll('.annot-layer path[stroke-linecap=\"round\"]').length");
+    const inkBefore = await inkCount();
+    await cdp.eval("document.querySelector('[title^=\"Tick mark\"]').click()");
+    await sleep(100);
+    const markControls = await cdp.eval<boolean>("!!document.querySelector('.style input[aria-label=\"Mark size\"]')");
+    check("the tick tool offers a typed mark size", () => assert.ok(markControls));
+    const surfaceCursor = await cdp.eval<string>(
+      "getComputedStyle(document.querySelector('.page[data-page-index=\"0\"] .surface')).cursor",
+    );
+    check("drawing tools use the outlined, theme-aware cursor", () =>
+      assert.ok(surfaceCursor.includes("url("), `cursor: ${surfaceCursor.slice(0, 60)}`),
+    );
+    await click({ x: box.x + box.w * 0.2, y: atY(0.3) });
+    await cdp.eval("document.querySelector('[title^=\"Cross mark\"]').click()");
+    await sleep(100);
+    await click({ x: box.x + box.w * 0.3, y: atY(0.3) });
+    const inkAfter = await waitFor("tick and cross marks", inkCount, (n) => n >= inkBefore + 2).catch(inkCount);
+    check("tick and cross tools each place a mark with one click", () =>
+      assert.ok(inkAfter >= inkBefore + 2, `${inkBefore} -> ${inkAfter} ink paths`),
+    );
+    await cdp.eval("document.querySelector('[title^=\"Select (\"]').click()");
+    await sleep(200);
+
     // --- right click commenting on page
     await cdp.eval(`(() => {
       const page = document.querySelector('.page[data-page-index="0"]');

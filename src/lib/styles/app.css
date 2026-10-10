@@ -493,6 +493,28 @@ textarea.field {
   scrollbar-width: thin;
 }
 
+/* ---------------------------------------------------------------- cursors */
+
+/*
+ * Page cursors drawn as a core line inside a contrasting halo, so they stay
+ * visible over white pages, dark reading modes and dark scans alike. The core
+ * follows the theme. The system crosshair and I-beam are plain thin lines on
+ * some platforms and disappear against a dark background.
+ */
+:root {
+  --cursor-crosshair: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' fill='none' stroke-linecap='round'%3E%3Cpath d='M12 3v6M12 15v6M3 12h6M15 12h6' stroke='%23fff' stroke-width='3.5'/%3E%3Cpath d='M12 3v6M12 15v6M3 12h6M15 12h6' stroke='%23111' stroke-width='1.5'/%3E%3Ccircle cx='12' cy='12' r='1.6' fill='%23fff'/%3E%3Ccircle cx='12' cy='12' r='0.8' fill='%23111'/%3E%3C/svg%3E") 12 12, crosshair;
+  --cursor-eraser: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' fill='none' stroke-linecap='round'%3E%3Cpath d='M12 4a8 8 0 1 0 0 16a8 8 0 1 0 0-16Z' stroke='%23fff' stroke-width='3.5'/%3E%3Cpath d='M12 4a8 8 0 1 0 0 16a8 8 0 1 0 0-16Z' stroke='%23111' stroke-width='1.5'/%3E%3C/svg%3E") 12 12, cell;
+  --cursor-text: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' fill='none' stroke-linecap='round'%3E%3Cpath d='M9 4h6M9 20h6M12 4v16' stroke='%23fff' stroke-width='3.5'/%3E%3Cpath d='M9 4h6M9 20h6M12 4v16' stroke='%23111' stroke-width='1.5'/%3E%3C/svg%3E") 12 12, text;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --cursor-crosshair: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' fill='none' stroke-linecap='round'%3E%3Cpath d='M12 3v6M12 15v6M3 12h6M15 12h6' stroke='%23111' stroke-width='3.5'/%3E%3Cpath d='M12 3v6M12 15v6M3 12h6M15 12h6' stroke='%23fff' stroke-width='1.5'/%3E%3Ccircle cx='12' cy='12' r='1.6' fill='%23111'/%3E%3Ccircle cx='12' cy='12' r='0.8' fill='%23fff'/%3E%3C/svg%3E") 12 12, crosshair;
+    --cursor-eraser: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' fill='none' stroke-linecap='round'%3E%3Cpath d='M12 4a8 8 0 1 0 0 16a8 8 0 1 0 0-16Z' stroke='%23111' stroke-width='3.5'/%3E%3Cpath d='M12 4a8 8 0 1 0 0 16a8 8 0 1 0 0-16Z' stroke='%23fff' stroke-width='1.5'/%3E%3C/svg%3E") 12 12, cell;
+    --cursor-text: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' fill='none' stroke-linecap='round'%3E%3Cpath d='M9 4h6M9 20h6M12 4v16' stroke='%23111' stroke-width='3.5'/%3E%3Cpath d='M9 4h6M9 20h6M12 4v16' stroke='%23fff' stroke-width='1.5'/%3E%3C/svg%3E") 12 12, text;
+  }
+}
+
 /* ------------------------------------------------------------ pdf.js layers */
 
 /*
@@ -502,7 +524,7 @@ textarea.field {
  */
 .textLayer {
   user-select: text;
-  cursor: text;
+  cursor: var(--cursor-text);
 }
 
 .textLayer ::selection {

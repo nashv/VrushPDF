@@ -106,6 +106,8 @@ const TOOL_GROUPS: { tool: Tool; label: string }[][] = [
   ],
   [
     { tool: "freetext", label: "Text Box" },
+    { tool: "check", label: "Tick Mark" },
+    { tool: "cross", label: "Cross Mark" },
     { tool: "note", label: "Comment" },
     { tool: "redact", label: "Redact" },
   ],

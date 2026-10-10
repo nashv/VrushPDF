@@ -4,8 +4,8 @@
    *
    * Displays context-aware options:
    * - When text is selected: Comment on Selection, Highlight, Underline, Strikeout, Copy
-   * - When an existing annotation is clicked: Edit Comment, Delete
-   * - Anywhere else on the page: Add Comment, Add Text Box
+   * - When an existing annotation is clicked: Edit Comment, Copy, Delete
+   * - Anywhere else on the page: Add Comment, Add Text Box, Paste
    */
   import Icon from "./Icon.svelte";
   import type { Annot } from "$lib/annotations/types";
@@ -29,6 +29,8 @@
     onMarkRedact,
     onApplyRedact,
     onEditComment,
+    onCopyAnnot,
+    onPasteAnnot,
     onDeleteAnnot,
     onClose,
   }: {
@@ -50,6 +52,9 @@
     onMarkRedact?: () => void;
     onApplyRedact?: () => void;
     onEditComment: () => void;
+    onCopyAnnot?: () => void;
+    /** Paste copied annotations at the click point; absent when nothing is copied. */
+    onPasteAnnot?: () => void;
     onDeleteAnnot: () => void;
     onClose: () => void;
   } = $props();
@@ -57,7 +62,7 @@
   let menuEl: HTMLDivElement | undefined = $state();
 
   const menuWidth = 190;
-  const menuHeight = $derived(hasSelection ? 200 : hasTargetAnnot ? 90 : 90);
+  const menuHeight = $derived(hasSelection ? 200 : hasTargetAnnot ? 120 : 120);
 
   const left = $derived(
     x + menuWidth > pageWidth ? Math.max(8, x - menuWidth) : Math.max(8, x)
@@ -139,6 +144,12 @@
       <Icon name="note" size={15} />
       <span>{targetAnnot?.contents ? "Edit Comment" : "Add Comment"}</span>
     </button>
+    {#if onCopyAnnot}
+      <button type="button" class="menu-item" role="menuitem" onclick={onCopyAnnot}>
+        <Icon name="file" size={15} />
+        <span>Copy</span>
+      </button>
+    {/if}
     <div class="menu-divider"></div>
     <button type="button" class="menu-item danger" role="menuitem" onclick={onDeleteAnnot}>
       <Icon name="trash" size={15} />
@@ -157,6 +168,13 @@
       <button type="button" class="menu-item" role="menuitem" onclick={onMarkRedact}>
         <Icon name="redact" size={15} />
         <span>Mark Redaction</span>
+      </button>
+    {/if}
+    {#if onPasteAnnot}
+      <div class="menu-divider"></div>
+      <button type="button" class="menu-item" role="menuitem" onclick={onPasteAnnot}>
+        <Icon name="plus" size={15} />
+        <span>Paste Here</span>
       </button>
     {/if}
   {/if}

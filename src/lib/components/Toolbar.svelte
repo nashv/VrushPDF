@@ -1,13 +1,14 @@
 <script lang="ts">
   /** Top chrome: file actions and zoom on one row, tools and their style on the next. */
-  import { isRedact, type AnnotKind } from "$lib/annotations/types";
+  import { isRedact } from "$lib/annotations/types";
   import { images } from "$lib/state/images.svelte";
   import { license } from "$lib/state/license.svelte";
   import { session } from "$lib/state/session.svelte";
-  import { viewer, type Tool } from "$lib/state/viewer.svelte";
+  import { viewer, type StyleKind, type Tool } from "$lib/state/viewer.svelte";
   import type { DocumentTab } from "$lib/state/workspace.svelte";
   import { hasGlass } from "$lib/platform";
   import Icon, { type IconName } from "./Icon.svelte";
+  import NumberInput from "./NumberInput.svelte";
   import StampPicker from "./StampPicker.svelte";
   import SignaturePicker from "./SignaturePicker.svelte";
 
@@ -50,6 +51,8 @@
     ],
     [
       { tool: "freetext", icon: "textbox", title: "Text box", key: "X" },
+      { tool: "check", icon: "check", title: "Tick mark, for forms", key: "C", short: "Tick" },
+      { tool: "cross", icon: "close", title: "Cross mark, for forms", key: "⇧C", short: "Cross" },
       { tool: "note", icon: "note", title: "Comment", key: "N" },
       { tool: "redact", icon: "redact", title: "Redact area or text (D)", key: "D", short: "Redact" },
     ],
@@ -63,17 +66,18 @@
   const open = $derived(tab?.isOpen === true);
   const pendingRedactionsCount = $derived(tab ? tab.edits.annots.filter(isRedact).length : 0);
   /** The kind whose style the controls edit, or null for non-drawing tools. */
-  const styledKind = $derived.by<AnnotKind | null>(() => {
+  const styledKind = $derived.by<StyleKind | null>(() => {
     const tool = viewer.tool;
-    return tool in viewer.styles ? (tool as AnnotKind) : null;
+    return tool in viewer.styles ? (tool as StyleKind) : null;
   });
   const style = $derived(styledKind ? viewer.styles[styledKind] : null);
 
   const showWidth = $derived(
     styledKind !== null &&
-      ["ink", "square", "circle", "line", "arrow", "underline", "strikeout", "squiggly"].includes(
-        styledKind,
-      ),
+      [
+        "ink", "square", "circle", "line", "arrow", "underline", "strikeout", "squiggly",
+        "check", "cross",
+      ].includes(styledKind),
   );
   const showFill = $derived(
     styledKind === "square" ||
@@ -82,6 +86,8 @@
       styledKind === "redact",
   );
   const showFontSize = $derived(styledKind === "freetext");
+  /** Ticks and crosses keep their size in `fontSize`. */
+  const showMarkSize = $derived(styledKind === "check" || styledKind === "cross");
 
   const zoomLabel = $derived(`${Math.round((tab?.view.scale ?? 1) * 100)}%`);
   const pageCount = $derived(tab?.edits.pages.length ?? 0);
@@ -486,7 +492,36 @@
               value={style.width}
               oninput={(event) => setStyle({ width: Number(event.currentTarget.value) })}
             />
-            <span class="num">{style.width}</span>
+            <NumberInput
+              label="Stroke width"
+              value={style.width}
+              min={0.5}
+              max={50}
+              step={0.5}
+              onchange={(width) => setStyle({ width })}
+            />
+          </label>
+        {/if}
+
+        {#if showMarkSize}
+          <label class="slider" title="Mark size">
+            <Icon name="square" size={13} />
+            <input
+              type="range"
+              min="6"
+              max="36"
+              step="1"
+              value={style.fontSize}
+              oninput={(event) => setStyle({ fontSize: Number(event.currentTarget.value) })}
+            />
+            <NumberInput
+              label="Mark size"
+              value={style.fontSize}
+              min={2}
+              max={200}
+              unit="pt"
+              onchange={(fontSize) => setStyle({ fontSize })}
+            />
           </label>
         {/if}
 
@@ -501,7 +536,15 @@
               value={style.fontSize}
               oninput={(event) => setStyle({ fontSize: Number(event.currentTarget.value) })}
             />
-            <span class="num">{style.fontSize}</span>
+            <NumberInput
+              label="Font size"
+              value={style.fontSize}
+              min={1}
+              max={200}
+              step={0.5}
+              unit="pt"
+              onchange={(fontSize) => setStyle({ fontSize })}
+            />
           </label>
         {/if}
 
@@ -585,7 +628,15 @@
             value={style.opacity}
             oninput={(event) => setStyle({ opacity: Number(event.currentTarget.value) })}
           />
-          <span class="num">{Math.round(style.opacity * 100)}%</span>
+          <NumberInput
+            label="Opacity"
+            value={style.opacity}
+            factor={100}
+            min={10}
+            max={100}
+            unit="%"
+            onchange={(opacity) => setStyle({ opacity })}
+          />
         </label>
 
         {#if showFill}
@@ -850,11 +901,6 @@
   .slider input[type="range"] {
     width: 72px;
     accent-color: var(--accent);
-  }
-
-  .num {
-    min-width: 30px;
-    font-variant-numeric: tabular-nums;
   }
 
   /* A half-filled square reads as "opacity" without needing a label. */

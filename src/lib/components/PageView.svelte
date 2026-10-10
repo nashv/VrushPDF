@@ -23,6 +23,7 @@
     createFreeText,
     createInk,
     createLineShape,
+    createMark,
     createNote,
     createRedact,
     createStamp,
@@ -31,13 +32,14 @@
     stampRectAt,
     stampRectFromDrag,
   } from "$lib/annotations/create";
+  import { copyAnnots, hasHeldAnnots, placeAnnots, readAnnots } from "$lib/annotations/clipboard";
   import {
     annotBounds,
-    hasRect,
     isFreeText,
     isInk,
     isNote,
     isRedact,
+    isResizable,
     isStamp,
     isTextMarkup,
     normalizeRect,
@@ -252,6 +254,8 @@
   let gesture = $state.raw<Gesture | null>(null);
   let hoveredAnnotId = $state<string | null>(null);
 
+  // The drawing cursors are outlined images from app.css: the system crosshair
+  // is a thin black cross that vanishes over dark pages and reading modes.
   const cursor = $derived(
     gesture?.kind === "move" || gesture?.kind === "pan"
       ? "grabbing"
@@ -260,8 +264,8 @@
         : tool === "select"
           ? (hoveredAnnotId ? "grab" : "default")
           : tool === "eraser"
-            ? "cell"
-            : "crosshair",
+            ? "var(--cursor-eraser)"
+            : "var(--cursor-crosshair)",
   );
 
   const slop = $derived(viewport ? HIT_SLOP_PX * pdfPerCssPixel(viewport) : 1);
@@ -346,6 +350,13 @@
       case "ink":
         beginGesture(event, { kind: "ink", points: [p] }, "Draw");
         return;
+
+      case "check":
+      case "cross": {
+        const annot = createMark(tool, entry.id, p, viewer.style.fontSize, style);
+        edits.add(annot, tool === "check" ? "Add tick" : "Add cross");
+        return;
+      }
 
       case "eraser":
         beginGesture(event, { kind: "erase" }, "Erase");
@@ -433,7 +444,7 @@
         return;
       }
       case "resize": {
-        if (!hasRect(g.original)) return;
+        if (!isResizable(g.original)) return;
         const next = resizeRect(annotBounds(g.original), g.handle, p);
         edits.update(g.id, () => scaleAnnotToRect(g.original, next));
         return;
@@ -755,6 +766,24 @@
     };
   }
 
+  function onContextMenuCopyAnnot() {
+    if (!contextMenuState?.targetAnnot) return;
+    const annot = contextMenuState.targetAnnot;
+    contextMenuState = null;
+    edits.select(annot.id);
+    copyAnnots([annot]);
+  }
+
+  function onContextMenuPasteAnnot() {
+    if (!contextMenuState) return;
+    const p = contextMenuState.point;
+    contextMenuState = null;
+    const copied = readAnnots();
+    if (!copied) return;
+    const pasted = placeAnnots(copied, entry.id, p);
+    edits.add(pasted, pasted.length > 1 ? "Paste annotations" : "Paste annotation");
+  }
+
   function onContextMenuDeleteAnnot() {
     if (!contextMenuState?.targetAnnot) return;
     const id = contextMenuState.targetAnnot.id;
@@ -968,6 +997,8 @@
         onMarkRedact={onContextMenuMarkRedact}
         onApplyRedact={onContextMenuApplyRedact}
         onEditComment={onContextMenuEditComment}
+        onCopyAnnot={onContextMenuCopyAnnot}
+        onPasteAnnot={hasHeldAnnots() ? onContextMenuPasteAnnot : undefined}
         onDeleteAnnot={onContextMenuDeleteAnnot}
         onClose={() => {
           contextMenuState = null;

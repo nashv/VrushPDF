@@ -45,6 +45,8 @@
       { tool: "line", title: "Line Shape Tool", key: "L", icon: "line" },
       { tool: "arrow", title: "Arrow Shape Tool", key: "A", icon: "arrow" },
       { tool: "freetext", title: "Text Box Tool", key: "X", icon: "textbox" },
+      { tool: "check", title: "Tick Mark Tool (Forms)", key: "C", icon: "check" },
+      { tool: "cross", title: "Cross Mark Tool (Forms)", key: "⇧C", icon: "close" },
       { tool: "note", title: "Sticky Note / Comment Tool", key: "N", icon: "note" },
       { tool: "redact", title: "Redact Tool (Mark for Redaction)", key: "D", icon: "redact" },
       { tool: "measure", title: "Measurement / Caliper Tool", icon: "ruler" },

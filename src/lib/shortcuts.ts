@@ -9,6 +9,7 @@
  * aside for those so nothing fires twice. Without the menu — the browser dev
  * server, the UI test harness — it keeps handling them itself.
  */
+import { copyAnnots, hasHeldAnnots, placeAnnots, readAnnots } from "$lib/annotations/clipboard";
 import { nativeMenuActive } from "$lib/menu/appMenu.svelte";
 import { session } from "$lib/state/session.svelte";
 import { viewer, type Tool } from "$lib/state/viewer.svelte";
@@ -33,6 +34,7 @@ const TOOL_KEYS: Record<string, Tool> = {
   s: "signature",
   m: "measure",
   d: "redact",
+  c: "check",
 };
 
 function isTyping(target: EventTarget | null): boolean {
@@ -40,6 +42,77 @@ function isTyping(target: EventTarget | null): boolean {
   if (target.isContentEditable) return true;
   const tag = target.tagName;
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+}
+
+// ----------------------------------------------------------------- clipboard
+
+/**
+ * The selected annotation, when copy/cut should take it rather than leave the
+ * event to text. Text wins whenever focus is in a field or text is selected.
+ */
+function annotToCopy(event: Event) {
+  if (isTyping(event.target) || isTyping(document.activeElement)) return null;
+  if (window.getSelection()?.isCollapsed === false) return null;
+  return workspace.active?.edits.selected ?? null;
+}
+
+function canPasteAnnots(event: Event): boolean {
+  if (isTyping(event.target) || isTyping(document.activeElement)) return false;
+  return workspace.active?.isOpen === true;
+}
+
+/**
+ * Ctrl/⌘ C, X and V on annotations. These ride on the DOM clipboard events, so
+ * the native Edit menu items and the keyboard reach them the same way and
+ * copying text in a field is untouched.
+ */
+export function installClipboard(): () => void {
+  const onCopy = (event: ClipboardEvent, cut: boolean) => {
+    const annot = annotToCopy(event);
+    const tab = workspace.active;
+    if (!annot || !tab) return;
+    event.preventDefault();
+    copyAnnots([annot], event.clipboardData);
+    if (cut) tab.edits.remove(annot.id, "Cut annotation");
+  };
+
+  const onPaste = (event: ClipboardEvent) => {
+    const tab = workspace.active;
+    if (!tab || !canPasteAnnots(event)) return;
+    const annots = readAnnots(event.clipboardData);
+    const page = tab.edits.pages[tab.view.currentPage] ?? tab.edits.pages[0];
+    if (!annots || !page) return;
+    event.preventDefault();
+    const pasted = placeAnnots(annots, page.id);
+    tab.edits.add(pasted, pasted.length > 1 ? "Paste annotations" : "Paste annotation");
+    viewer.setTool("select");
+  };
+
+  // WebKit greys out Edit ▸ Copy/Paste when there is no text selection unless
+  // the page claims the command by cancelling the matching `before*` event.
+  const onBeforeCopy = (event: Event) => {
+    if (annotToCopy(event)) event.preventDefault();
+  };
+  const onBeforePaste = (event: Event) => {
+    if (hasHeldAnnots() && canPasteAnnots(event)) event.preventDefault();
+  };
+
+  const copy = (event: ClipboardEvent) => onCopy(event, false);
+  const cut = (event: ClipboardEvent) => onCopy(event, true);
+  document.addEventListener("copy", copy);
+  document.addEventListener("cut", cut);
+  document.addEventListener("paste", onPaste);
+  document.addEventListener("beforecopy", onBeforeCopy);
+  document.addEventListener("beforecut", onBeforeCopy);
+  document.addEventListener("beforepaste", onBeforePaste);
+  return () => {
+    document.removeEventListener("copy", copy);
+    document.removeEventListener("cut", cut);
+    document.removeEventListener("paste", onPaste);
+    document.removeEventListener("beforecopy", onBeforeCopy);
+    document.removeEventListener("beforecut", onBeforeCopy);
+    document.removeEventListener("beforepaste", onBeforePaste);
+  };
 }
 
 export function handleShortcut(event: KeyboardEvent) {
@@ -192,7 +265,8 @@ export function handleShortcut(event: KeyboardEvent) {
     return;
   }
 
-  const tool = TOOL_KEYS[key.toLowerCase()];
+  // C places ticks; Shift+C, its counterpart, places crosses.
+  const tool = event.shiftKey && key.toLowerCase() === "c" ? "cross" : TOOL_KEYS[key.toLowerCase()];
   if (tool) {
     event.preventDefault();
     // The signature tool is only usable once a signature exists to place.

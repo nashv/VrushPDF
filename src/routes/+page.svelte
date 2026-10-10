@@ -26,7 +26,7 @@
   import Welcome from "$lib/components/Welcome.svelte";
   import { installAppMenu } from "$lib/menu/appMenu.svelte";
   import { hasGlass } from "$lib/platform";
-  import { handleShortcut } from "$lib/shortcuts";
+  import { handleShortcut, installClipboard } from "$lib/shortcuts";
   import { images } from "$lib/state/images.svelte";
   import { license } from "$lib/state/license.svelte";
   import { recents } from "$lib/state/recents.svelte";
@@ -57,6 +57,7 @@
 
     // The native menu bar: macOS gets it app-wide, Windows and Linux in-window.
     const menu = installAppMenu({ onDrawSignature: () => (signaturePadOpen = true) });
+    const uninstallClipboard = installClipboard();
 
     // Start with one empty tab so the welcome screen has somewhere to open into.
     if (workspace.count === 0) workspace.open();
@@ -87,6 +88,7 @@
     const fullscreenWatch = hasGlass ? watchFullscreen() : Promise.resolve(() => {});
 
     return () => {
+      uninstallClipboard();
       void fullscreenWatch.then((off) => off()).catch(() => {});
       void unlisten.then((off) => off()).catch(() => {});
       void closeGuard.then((off) => off()).catch(() => {});

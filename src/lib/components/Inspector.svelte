@@ -21,6 +21,7 @@
   import { viewer } from "$lib/state/viewer.svelte";
   import type { DocumentTab } from "$lib/state/workspace.svelte";
   import Icon from "./Icon.svelte";
+  import NumberInput from "./NumberInput.svelte";
 
   let { tab }: { tab: DocumentTab } = $props();
   const edits = $derived(tab.edits);
@@ -247,7 +248,18 @@
       </section>
 
       <section>
-        <span class="label" id="opacity">Opacity — {Math.round(annot.opacity * 100)}%</span>
+        <div class="label-row">
+          <span class="label" id="opacity">Opacity</span>
+          <NumberInput
+            label="Opacity"
+            value={annot.opacity}
+            factor={100}
+            min={10}
+            max={100}
+            unit="%"
+            onchange={(opacity) => patch({ opacity })}
+          />
+        </div>
         <input
           type="range"
           min="0.1"
@@ -262,9 +274,18 @@
 
     {#if hasStroke}
       <section>
-        <span class="label" id="width">
-          Stroke width — {(annot as { width: number }).width}pt
-        </span>
+        <div class="label-row">
+          <span class="label" id="width">Stroke width</span>
+          <NumberInput
+            label="Stroke width"
+            value={(annot as { width: number }).width}
+            min={0}
+            max={50}
+            step={0.5}
+            unit="pt"
+            onchange={(width) => patch({ width } as Partial<Annot>)}
+          />
+        </div>
         <input
           type="range"
           min="0"
@@ -315,7 +336,18 @@
       </section>
 
       <section>
-        <span class="label" id="fontsize">Font size — {annot.fontSize}pt</span>
+        <div class="label-row">
+          <span class="label" id="fontsize">Font size</span>
+          <NumberInput
+            label="Font size"
+            value={annot.fontSize}
+            min={1}
+            max={200}
+            step={0.5}
+            unit="pt"
+            onchange={(fontSize) => patch({ fontSize } as Partial<Annot>)}
+          />
+        </div>
         <input
           type="range"
           min="6"
@@ -328,7 +360,17 @@
       </section>
 
       <section>
-        <span class="label" id="padding">Padding — {annot.padding ?? 2}pt</span>
+        <div class="label-row">
+          <span class="label" id="padding">Padding</span>
+          <NumberInput
+            label="Padding"
+            value={annot.padding ?? 2}
+            min={0}
+            max={100}
+            unit="pt"
+            onchange={(padding) => patch({ padding } as Partial<Annot>)}
+          />
+        </div>
         <input
           type="range"
           min="0"
@@ -589,6 +631,13 @@
   input[type="range"] {
     width: 100%;
     accent-color: var(--accent);
+  }
+
+  .label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
   }
 
   .fill-row {

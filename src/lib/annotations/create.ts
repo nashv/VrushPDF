@@ -63,6 +63,34 @@ export function createLineShape(
   return { ...baseOf(pageId, style), kind, from, to, width: style.width };
 }
 
+/** Mark strokes in a unit square, y up like PDF space. */
+const MARK_PATHS: Record<"check" | "cross", Point[][]> = {
+  check: [[{ x: 0.1, y: 0.52 }, { x: 0.38, y: 0.18 }, { x: 0.9, y: 0.86 }]],
+  cross: [
+    [{ x: 0.15, y: 0.15 }, { x: 0.85, y: 0.85 }],
+    [{ x: 0.15, y: 0.85 }, { x: 0.85, y: 0.15 }],
+  ],
+};
+
+/**
+ * A tick or cross for form filling, `size` points square and centred on
+ * `center`. Written as Ink so it keeps its vector shape and any viewer shows it.
+ */
+export function createMark(
+  kind: "check" | "cross",
+  pageId: string,
+  center: Point,
+  size: number,
+  style: AnnotStyle,
+): InkAnnot {
+  const x = center.x - size / 2;
+  const y = center.y - size / 2;
+  const paths = MARK_PATHS[kind].map((stroke) =>
+    stroke.map((p) => ({ x: x + p.x * size, y: y + p.y * size })),
+  );
+  return createInk(pageId, paths, style);
+}
+
 /**
  * Rect for a FreeText placed by a single click: compact height sized to
  * the font size, anchored at the click point.

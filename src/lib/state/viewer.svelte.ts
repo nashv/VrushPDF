@@ -4,11 +4,21 @@
  */
 import type { AnnotKind, FontFamily } from "$lib/annotations/types";
 
+/**
+ * Tick and cross marks for filling in forms. Not annotation kinds of their own:
+ * they place a small Ink annotation, so every viewer can show them.
+ */
+export type MarkKind = "check" | "cross";
+
+/** Everything that has its own remembered style: annotation kinds plus marks. */
+export type StyleKind = AnnotKind | MarkKind;
+
 export type Tool =
   | "select"
   | "pan"
   | "text"
   | AnnotKind
+  | MarkKind
   | "eraser"
   | "signature"
   | "measure";
@@ -34,6 +44,8 @@ export const DRAG_TOOLS: Tool[] = [
   "measure",
   "redact",
 ];
+/** Tools that place a fixed-shape mark with a single click. */
+export const MARK_TOOLS: Tool[] = ["check", "cross"];
 /** Tools that consume a text selection from the text layer. */
 export const MARKUP_TOOLS: Tool[] = ["highlight", "underline", "strikeout", "squiggly"];
 
@@ -108,7 +120,7 @@ function clampPanel(panel: Panel, px: number): number {
  * Per-kind defaults. Markup colours are the conventional highlighter set;
  * ink and shapes default to a saturated red so they read as a mark-up layer.
  */
-function defaultStyles(): Record<AnnotKind, AnnotStyle> {
+function defaultStyles(): Record<StyleKind, AnnotStyle> {
   const base: AnnotStyle = { color: "#e11d48", opacity: 1, width: 2, fill: null, fontSize: 12 };
   return {
     highlight: { ...base, color: "#fde047", opacity: 0.45, width: 0 },
@@ -135,17 +147,20 @@ function defaultStyles(): Record<AnnotKind, AnnotStyle> {
     note: { ...base, color: "#fbbf24" },
     stamp: { ...base, width: 0 },
     redact: { ...base, color: "#ef4444", fill: "#000000", width: 1.5, opacity: 1 },
+    // `fontSize` is the mark's size in points, so it reuses the size control.
+    check: { ...base, color: "#111827", width: 1.5, fontSize: 12 },
+    cross: { ...base, color: "#111827", width: 1.5, fontSize: 12 },
   };
 }
 
-function loadStyles(): Record<AnnotKind, AnnotStyle> {
+function loadStyles(): Record<StyleKind, AnnotStyle> {
   const defaults = defaultStyles();
   try {
     const raw = readStored(STYLE_KEY, LEGACY_STYLE_KEY);
     if (!raw) return defaults;
-    const saved = JSON.parse(raw) as Partial<Record<AnnotKind, Partial<AnnotStyle>>>;
+    const saved = JSON.parse(raw) as Partial<Record<StyleKind, Partial<AnnotStyle>>>;
     for (const [kind, style] of Object.entries(saved)) {
-      const key = kind as AnnotKind;
+      const key = kind as StyleKind;
       if (defaults[key] && style) defaults[key] = { ...defaults[key], ...style };
     }
   } catch {
@@ -217,7 +232,7 @@ export class ViewState {
  */
 class ViewerStore {
   tool = $state<Tool>("select");
-  styles = $state<Record<AnnotKind, AnnotStyle>>(loadStyles());
+  styles = $state<Record<StyleKind, AnnotStyle>>(loadStyles());
 
   sidebarOpen = $state(true);
   sidebarTab = $state<SidebarTab>("thumbnails");
@@ -242,10 +257,10 @@ class ViewerStore {
 
   /** The active tool's style, or the fallback when the tool doesn't draw. */
   get style(): AnnotStyle {
-    return this.styles[this.tool as AnnotKind] ?? this.styles.ink;
+    return this.styles[this.tool as StyleKind] ?? this.styles.ink;
   }
 
-  setStyle(kind: AnnotKind, patch: Partial<AnnotStyle>) {
+  setStyle(kind: StyleKind, patch: Partial<AnnotStyle>) {
     this.styles[kind] = { ...this.styles[kind], ...patch };
     try {
       globalThis.localStorage?.setItem(STYLE_KEY, JSON.stringify($state.snapshot(this.styles)));

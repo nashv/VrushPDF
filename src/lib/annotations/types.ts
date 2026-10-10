@@ -293,8 +293,25 @@ export function scaleAnnotToRect<T extends Annot>(a: T, target: Rect): T {
     });
     return { ...a, from: map(a.from), to: map(a.to) };
   }
+  if (isInk(a)) {
+    // Bounds include the stroke radius; scale the points between the unpadded
+    // boxes so the stroke doesn't creep with every resize.
+    const pad = a.width / 2 + 1;
+    const src = padRect(annotBounds(a), -pad);
+    const dst = padRect(target, -pad);
+    const sx = src.w <= 0 ? 1 : Math.max(dst.w, 0.1) / src.w;
+    const sy = src.h <= 0 ? 1 : Math.max(dst.h, 0.1) / src.h;
+    const map = (p: Point): Point => ({
+      x: dst.x + (p.x - src.x) * sx,
+      y: dst.y + (p.y - src.y) * sy,
+    });
+    return { ...a, paths: a.paths.map((path) => path.map(map)) };
+  }
   return a;
 }
+
+/** Annotations the selection UI offers resize handles for. */
+export const isResizable = (a: Annot): boolean => hasRect(a) || isInk(a);
 
 /** Set a FreeText's body, keeping `contents` (i.e. `/Contents`) in step. */
 export function setFreeTextText(a: FreeTextAnnot, text: string): FreeTextAnnot {

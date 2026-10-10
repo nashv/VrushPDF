@@ -11,9 +11,9 @@
   import type { PageViewport } from "pdfjs-dist";
   import {
     annotBounds,
-    hasRect,
     isFreeText,
     isNote,
+    isResizable,
     NOTE_SIZE,
     type Annot,
   } from "$lib/annotations/types";
@@ -59,7 +59,7 @@
 
   /** Only kinds with a meaningful box get resize handles. */
   const showHandles = $derived(
-    selected !== null && hasRect(selected) && selected.id !== editingId,
+    selected !== null && isResizable(selected) && selected.id !== editingId,
   );
 
   const boxOf = (annot: Annot) => toViewportRect(viewport, annotBounds(annot));
@@ -224,10 +224,15 @@
 </div>
 
 <style>
+  /*
+   * Above PageView's interaction surface (5) and the form fields (6): handles,
+   * note pins and the open text box must get the pointer first. The layer
+   * itself lets everything else fall through to the surface.
+   */
   .widgets {
     position: absolute;
     inset: 0;
-    z-index: 4;
+    z-index: 7;
     pointer-events: none;
   }
 
@@ -318,6 +323,13 @@
     border-radius: 2px;
     background: var(--bg-raised);
     box-shadow: var(--shadow-1);
+  }
+
+  /* A 9px square is a hard target; grab within a 17px one. */
+  .handle::before {
+    content: "";
+    position: absolute;
+    inset: -5px;
   }
 
   .sr-only {
