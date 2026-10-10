@@ -9,7 +9,8 @@ import { licenseActivate, licenseRemove, licenseStatus, type LicenseStatus } fro
 import { viewer } from "./viewer.svelte";
 
 /** Tools that only look at the document, so they stay usable after a trial. */
-const READ_ONLY_TOOLS = new Set(["select", "pan", "text"]);
+// Region OCR only copies text out; it never changes the document.
+const READ_ONLY_TOOLS = new Set(["select", "pan", "text", "ocr"]);
 
 /**
  * A trial can end while the app is open; this is how soon it notices. It also

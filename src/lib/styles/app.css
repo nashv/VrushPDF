@@ -525,6 +525,14 @@ textarea.field {
 .textLayer {
   user-select: text;
   cursor: var(--cursor-text);
+  /*
+   * pdf.js sizes the layer with `round(…, var(--scale-round-x))` but defines
+   * these only under its own `.pdfViewer .page`. Undefined, the size is invalid
+   * and the layer falls back to the rotated page box, which on 90° and 270°
+   * pages shifts every selectable word off the text it belongs to.
+   */
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
 }
 
 .textLayer ::selection {

@@ -34,6 +34,7 @@
       { tool: "select", title: "Select Tool", key: "V", icon: "cursor" },
       { tool: "pan", title: "Hand / Pan Tool", key: "H", icon: "hand" },
       { tool: "text", title: "Select Text Tool", key: "T", icon: "text" },
+      { tool: "ocr", title: "Copy Text from Scan (OCR region)", icon: "ocr" },
       { tool: "highlight", title: "Highlight Tool", key: "1", icon: "highlight" },
       { tool: "underline", title: "Underline Tool", key: "2", icon: "underline" },
       { tool: "strikeout", title: "Strikeout Tool", key: "3", icon: "strikeout" },
@@ -142,6 +143,13 @@
         category: "Document",
         icon: "watermark",
         action: () => session.openWatermarkDialog(),
+      },
+      {
+        id: "doc-ocr",
+        title: "Recognise Text (OCR) / Make Searchable…",
+        category: "Document",
+        icon: "ocr",
+        action: () => session.openOcrDialog(),
       },
       {
         id: "doc-headers-footers",

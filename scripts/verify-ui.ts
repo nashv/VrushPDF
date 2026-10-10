@@ -1974,6 +1974,114 @@ async function main() {
     );
 
     // --------------------------------------------------------------- forms
+    // ------------------------------------------------------------------ OCR
+    // Real Tesseract in the worker, with the bundled engine and models. The
+    // fixture has real text, so "skip pages with text" is turned off to give
+    // the recognizer something to read.
+    console.log("\nOCR");
+
+    await cdp.eval(`window.__nextOpen = [${JSON.stringify(PDF_PATH)}]`);
+    await cdp.eval("document.querySelector('.tabbar .add').click()");
+    const ocrSpans = () =>
+      cdp.eval<number>("document.querySelectorAll('.page[data-page-index=\"0\"] .textLayer span').length");
+    const spansBefore = await waitFor("the report's text layer", ocrSpans, (n) => n > 0, 25000).catch(() => 0);
+    // How often a word from the page shows in its text: twice once OCR has
+    // read it correctly (the original text plus the recognised copy).
+    const brownCount = () =>
+      cdp.eval<number>(`[...document.querySelectorAll('.page[data-page-index="0"] .textLayer span')]
+        .reduce((n, s) => n + (s.textContent.match(/brown/g)?.length ?? 0), 0)`);
+    const brownBefore = await brownCount();
+    check("the text layer holds the page's text once, not twice", () =>
+      assert.equal(brownBefore, 1, `"brown" appears ${brownBefore} times before OCR`),
+    );
+    const toastText = () => cdp.eval<string>("[...document.querySelectorAll('.toast')].map((t) => t.textContent).join(' | ')");
+
+    const runOcr = async (skipPagesWithText: boolean) => {
+      await cdp.eval("document.querySelector('[title=\"Recognise text (OCR)…\"]').click()");
+      await waitFor("the OCR dialog", () => cdp.eval<boolean>("!!document.querySelector('#ocr-range')"), (v) => v);
+      await cdp.eval(`(() => {
+        const range = document.querySelector('#ocr-range');
+        range.value = "1";
+        range.dispatchEvent(new Event('input', { bubbles: true }));
+        const skip = [...document.querySelectorAll('.dialog .check input')][0];
+        if (skip.checked !== ${skipPagesWithText}) skip.click();
+      })()`);
+      await sleep(100);
+      await cdp.eval("[...document.querySelectorAll('.dialog .btn.primary')].find((b) => b.textContent.includes('Recognise')).click()");
+    };
+
+    await runOcr(false);
+    const ocrToast = await waitFor(
+      "OCR to finish",
+      toastText,
+      (t) => /searchable|No text|Could not/.test(t),
+      90000,
+    ).catch(() => "");
+    check("Make searchable recognises the page's words", () => {
+      const words = Number(/(\d+) words/.exec(ocrToast)?.[1] ?? 0);
+      assert.ok(words >= 20, `toast: ${ocrToast || "(none)"}`);
+    });
+    const spansAfter = await waitFor("the new text layer", ocrSpans, (n) => n > spansBefore, 25000).catch(ocrSpans);
+    check("the recognised text joins the page's selectable, searchable text", () =>
+      assert.ok(spansAfter > spansBefore, `${spansBefore} -> ${spansAfter} text spans`),
+    );
+    const brownAfter = await waitFor("the recognised words", brownCount, (n) => n > brownBefore, 10000).catch(brownCount);
+    check("the recognised words are the page's real words, read the right way up", () =>
+      assert.ok(brownAfter > brownBefore, `"brown" ${brownBefore} -> ${brownAfter} times`),
+    );
+    const ocrDirty = await cdp.eval<boolean>("!!document.querySelector('.tabbar .tab.active .dot')");
+    check("the rewritten document is marked unsaved", () => assert.ok(ocrDirty));
+
+    await sleep(4500); // let the first toast expire
+    await runOcr(true);
+    const skipToast = await waitFor("the skip notice", toastText, (t) => t.includes("already had text"), 30000).catch(toastText);
+    check("pages that already have text are skipped by default", () =>
+      assert.ok(skipToast.includes("already had text"), `toast: ${skipToast}`),
+    );
+
+    // Region tool: drag over the heading and read it back. Close any popover
+    // an earlier section left open (the stamp picker), which would cover it.
+    await cdp.eval("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
+    await cdp.eval("document.querySelector('[title=\"Copy text from a scan (OCR)\"]').click()");
+    await sleep(100);
+    const heading = await cdp.eval<{ x0: number; y0: number; x1: number; y1: number; inView: boolean } | null>(`(() => {
+      const span = [...document.querySelectorAll('.page[data-page-index="0"] .textLayer span')]
+        .find((s) => s.textContent.includes('Section 1'));
+      if (!span) return null;
+      span.scrollIntoView({ block: "center" });
+      const r = span.getBoundingClientRect();
+      return { x0: r.left - 8, y0: r.top - 8, x1: r.right + 8, y1: r.bottom + 8, inView: r.top > 0 && r.bottom < innerHeight };
+    })()`);
+    check("the report's heading is on screen to read", () => assert.ok(heading?.inView, JSON.stringify(heading)));
+    if (heading) {
+      await drag(cdp, { x: heading.x0, y: heading.y0 }, { x: heading.x1, y: heading.y1 }, 6);
+      const read = await waitFor(
+        "region OCR",
+        () => cdp.eval<string>("document.querySelector('.ocr-result textarea')?.value ?? (document.querySelector('.ocr-result .status')?.textContent ?? '')"),
+        (t) => t !== "" && !t.includes("Reading"),
+        60000,
+      ).catch(() => "");
+      await cdp.send("Page.captureScreenshot", { format: "png" }).then((r: any) =>
+        writeFileSync(`${OUT_DIR}/ui-ocr-region.png`, Buffer.from(r.data, "base64")),
+      );
+      const seen = /Section\s*1/.test(read)
+        ? ""
+        : await cdp.eval<string>(`JSON.stringify({
+            popup: document.querySelector('.ocr-result')?.innerText ?? null,
+            toasts: [...document.querySelectorAll('.toast')].map((t) => t.textContent),
+          })`);
+      // The box is dragged where the text layer says the heading is, so this
+      // also catches the layer drifting off the page's text (it did, on this
+      // page's 90° rotation, before app.css defined --scale-round-x/y).
+      check("the region tool reads the text inside the dragged box", () =>
+        assert.match(read, /Section\s*1/, `read: ${read || "(nothing)"} ${seen}`),
+      );
+    }
+    await cdp.eval(`document.querySelector('.tools button[title^="Select ("]').click()`);
+    await sleep(100);
+    const popupGone = await cdp.eval<boolean>("!document.querySelector('.ocr-result')");
+    check("leaving the OCR tool closes its result", () => assert.ok(popupGone));
+
     console.log("\nforms");
 
     await cdp.eval(`window.__nextOpen = [${JSON.stringify(FORM_PATH)}]`);

@@ -7,6 +7,7 @@
   import Inspector from "$lib/components/Inspector.svelte";
   import LicenseDialog from "$lib/components/LicenseDialog.svelte";
   import MergeDialog from "$lib/components/MergeDialog.svelte";
+  import OcrDialog from "$lib/components/OcrDialog.svelte";
   import OptimizeDialog from "$lib/components/OptimizeDialog.svelte";
   import PasswordDialog from "$lib/components/PasswordDialog.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
@@ -162,7 +163,12 @@
   </div>
 
   {#if session.busy}
-    <div class="busy" role="status">{session.busy}</div>
+    <div class="busy" role="status">
+      <span>{session.busy}</span>
+      {#if session.cancelBusy}
+        <button class="busy-cancel" onclick={() => session.cancelBusy?.()}>Cancel</button>
+      {/if}
+    </div>
   {/if}
 </div>
 
@@ -188,6 +194,10 @@
 
 {#if session.splitOpen}
   <SplitDialog />
+{/if}
+
+{#if session.ocrOpen}
+  <OcrDialog />
 {/if}
 
 {#if session.watermarkOpen}
@@ -247,5 +257,21 @@
     backdrop-filter: var(--surface-float-filter);
     border: 1px solid var(--surface-float-border);
     box-shadow: var(--shadow-3);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .busy-cancel {
+    padding: 2px 10px;
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    color: var(--text-muted);
+  }
+
+  .busy-cancel:hover {
+    background: var(--bg-hover);
+    color: var(--text);
   }
 </style>

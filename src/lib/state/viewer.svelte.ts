@@ -21,7 +21,9 @@ export type Tool =
   | MarkKind
   | "eraser"
   | "signature"
-  | "measure";
+  | "measure"
+  /** Drag a box over a scan to copy the text OCR finds in it. */
+  | "ocr";
 
 export type PageLayout = "single" | "two-page" | "two-page-cover";
 export type ReadingMode = "default" | "dark" | "sepia" | "invert";

@@ -245,15 +245,15 @@ export class EditStore {
 
   // --------------------------------------------------------------- annotations
 
+  /**
+   * Add annotations. Deliberately leaves the selection alone: a freshly added
+   * mark stays unselected so the next one can follow straight away, without
+   * handles and the properties panel getting in the way.
+   */
   add(annot: Annot | Annot[], label = "Add annotation") {
     this.commit(label, () => {
-      if (Array.isArray(annot)) {
-        this.annots.push(...annot);
-        if (annot.length > 0) this.selectedId = annot[0].id;
-      } else {
-        this.annots.push(annot);
-        this.selectedId = annot.id;
-      }
+      if (Array.isArray(annot)) this.annots.push(...annot);
+      else this.annots.push(annot);
     });
   }
 

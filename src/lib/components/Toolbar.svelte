@@ -21,7 +21,8 @@
     tool: Tool;
     icon: IconName;
     title: string;
-    key: string;
+    /** Shortcut, shown in the tooltip; not every tool has one. */
+    key?: string;
     /** Button label when labels are on; `title` is tooltip prose, often too long. */
     short?: string;
   }
@@ -31,6 +32,7 @@
       { tool: "select", icon: "cursor", title: "Select", key: "V" },
       { tool: "pan", icon: "hand", title: "Pan", key: "H" },
       { tool: "text", icon: "text", title: "Select text", key: "T", short: "Text" },
+      { tool: "ocr", icon: "ocr", title: "Copy text from a scan (OCR)", short: "OCR" },
     ],
     [
       { tool: "highlight", icon: "highlight", title: "Highlight", key: "1" },
@@ -157,6 +159,10 @@
       <button class="btn square" title="Split & Extract Pages…" disabled={!open} onclick={() => session.openSplitDialog()}>
         <Icon name="scissors" />
         <span class="btn-label">Split</span>
+      </button>
+      <button class="btn square" title="Recognise text (OCR)…" disabled={!open} onclick={() => session.openOcrDialog()}>
+        <Icon name="ocr" />
+        <span class="btn-label">OCR</span>
       </button>
       <button class="btn square" title="Watermark…" disabled={!open} onclick={() => session.openWatermarkDialog()}>
         <Icon name="watermark" />
@@ -374,7 +380,7 @@
             <button
               class="btn square"
               class:selected={viewer.tool === spec.tool}
-              title="{spec.title} ({spec.key})"
+              title={spec.key ? `${spec.title} (${spec.key})` : spec.title}
               disabled={!open || !license.allowsTool(spec.tool)}
               onclick={() => viewer.setTool(spec.tool)}
             >

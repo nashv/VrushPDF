@@ -64,8 +64,10 @@
     pdfPerCssPixel,
     toPdfPoint,
     toViewportPoint,
+    toViewportRect,
     viewportFor,
   } from "$lib/pdf/render";
+  import { loadOcrLanguages, recognizeRegion } from "$lib/ocr/engine";
   import { clearSelection, mountTextLayer, selectionOnPage, type TextLayerHandle } from "$lib/pdf/textlayer";
   import type { PDFPageProxy } from "$lib/pdf/pdfjs";
   import { images } from "$lib/state/images.svelte";
@@ -78,6 +80,7 @@
   import FormLayer from "./FormLayer.svelte";
   import PageContextMenu from "./PageContextMenu.svelte";
   import CommentPopup from "./CommentPopup.svelte";
+  import OcrResult from "./OcrResult.svelte";
 
   let {
     tab,
@@ -122,6 +125,22 @@
     y: number;
     isNew?: boolean;
   } | null>(null);
+
+  /** The region OCR tool's last box and what it read there. */
+  let ocrRegion = $state<{
+    /** Which drag this is, so a slow read can't overwrite a newer one. */
+    job: number;
+    box: { left: number; top: number; width: number; height: number };
+    text: string;
+    reading: boolean;
+    copied: boolean;
+  } | null>(null);
+
+  let ocrJobs = 0;
+
+  $effect(() => {
+    if (viewer.tool !== "ocr") ocrRegion = null;
+  });
 
   const activeCommentAnnot = $derived(
     activeComment ? edits.annots.find((a) => a.id === activeComment?.annotId) ?? null : null,
@@ -338,6 +357,13 @@
         surfaceEl?.setPointerCapture(event.pointerId);
         return;
 
+      case "ocr":
+        // Reading only: no undo entry, and no license check via `edits.begin`.
+        ocrRegion = null;
+        gesture = { kind: "box", origin: p, current: p, shift: false };
+        surfaceEl?.setPointerCapture(event.pointerId);
+        return;
+
       case "select": {
         const target = pick(annots, p, slop);
         edits.select(target?.id ?? null);
@@ -366,7 +392,6 @@
       case "note": {
         const annot = createNote(entry.id, p, style);
         edits.add(annot, "Add note");
-        edits.select(annot.id);
         viewer.inspectorOpen = true;
         const vpPoint = toViewportPoint(viewport, p);
         activeComment = {
@@ -473,6 +498,13 @@
       return;
     }
 
+    if (g.kind === "box" && tool === "ocr") {
+      gesture = null;
+      const rect = normalizeRect(g.origin, g.current);
+      if (viewport && rect.w * scale >= 6 && rect.h * scale >= 6) readRegion(rect);
+      return;
+    }
+
     if (g.kind === "ink" && viewport) {
       const simplified = simplifyStroke(g.points, 0.4 * pdfPerCssPixel(viewport));
       gesture = null;
@@ -506,11 +538,9 @@
         labelAnnot.text = labelText;
         labelAnnot.align = "center";
         edits.annots.push(labelAnnot);
-        edits.select(labelAnnot.id);
         session.notify(`Measured distance: ${labelText}`);
       } else if (created) {
         edits.annots.push(created);
-        edits.select(created.id);
         if (isFreeText(created)) editingId = created.id;
       } else if (g.kind === "box" && p && (tool === "stamp" || tool === "signature")) {
         // A click rather than a drag: place at the image's natural aspect.
@@ -524,7 +554,6 @@
             viewer.style,
           );
           edits.annots.push(annot);
-          edits.select(annot.id);
         }
       } else if (g.kind === "box" && p && tool === "freetext") {
         // A click makes a default-sized box sized for the font.
@@ -534,7 +563,6 @@
           viewer.style,
         );
         edits.annots.push(annot);
-        edits.select(annot.id);
         editingId = annot.id;
       } else if (g.kind === "box" && p && tool === "redact") {
         const annot = createRedact(
@@ -543,7 +571,6 @@
           viewer.style,
         );
         edits.annots.push(annot);
-        edits.select(annot.id);
       }
 
       edits.end();
@@ -559,6 +586,46 @@
     gesture = null;
     hoveredAnnotId = null;
     edits.cancel();
+  }
+
+  /**
+   * OCR the dragged box and copy what it reads. The clipboard is claimed now,
+   * inside the pointer event, with the text to follow: recognition takes too
+   * long for the user activation a later `writeText` would need.
+   */
+  function readRegion(rect: Rect) {
+    if (!viewport) return;
+    const job = doc
+      .page(entry.sourceDocId, entry.srcIndex)
+      .then((page) => recognizeRegion(page, entry.rotation, rect, loadOcrLanguages()));
+    // Compared by id: state objects are proxies, so identity checks never match.
+    const region = { job: ++ocrJobs, box: toViewportRect(viewport, rect), text: "", reading: true, copied: false };
+    ocrRegion = region;
+
+    /** Whether the text reached the clipboard. */
+    let clipboard = Promise.resolve(false);
+    try {
+      const blob = job.then((text) => {
+        if (!text) throw new Error("no text");
+        return new Blob([text], { type: "text/plain" });
+      });
+      clipboard = navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })]).then(
+        () => true,
+        () => false,
+      );
+    } catch {
+      // No ClipboardItem here; the result popup's Copy button still works.
+    }
+
+    void job
+      .then(async (text) => {
+        const copied = text ? await clipboard : false;
+        if (ocrRegion?.job === region.job) ocrRegion = { ...region, text, reading: false, copied };
+      })
+      .catch((err) => {
+        if (ocrRegion?.job === region.job) ocrRegion = null;
+        session.notify(`Could not read text: ${err instanceof Error ? err.message : String(err)}`, "error");
+      });
   }
 
   function eraseAt(p: Point) {
@@ -657,7 +724,6 @@
     const kind: TextMarkupKind = "highlight";
     const annot = createTextMarkup(kind, entry.id, sel.quads, sel.text, viewer.styles[kind]);
     edits.add(annot, "Add comment");
-    edits.select(annot.id);
     clearSelection();
 
     activeComment = {
@@ -677,7 +743,6 @@
 
     const annot = createNote(entry.id, p, viewer.style);
     edits.add(annot, "Add note");
-    edits.select(annot.id);
 
     activeComment = {
       annotId: annot.id,
@@ -698,7 +763,6 @@
       viewer.style,
     );
     edits.add(annot, "Add text box");
-    edits.select(annot.id);
     editingId = annot.id;
   }
 
@@ -709,7 +773,6 @@
     const r = unionRects(sel.quads.map(rectFromQuad));
     const annot = createRedact(entry.id, r, viewer.styles.redact, sel.quads);
     edits.add(annot, "Mark text for redaction");
-    edits.select(annot.id);
     clearSelection();
   }
 
@@ -723,7 +786,6 @@
       viewer.styles.redact,
     );
     edits.add(annot, "Mark for redaction");
-    edits.select(annot.id);
   }
 
   function onContextMenuApplyRedact() {
@@ -738,7 +800,6 @@
 
     const annot = createTextMarkup(kind, entry.id, sel.quads, sel.text, viewer.styles[kind]);
     edits.add(annot, `Add ${kind}`);
-    edits.select(annot.id);
     clearSelection();
   }
 
@@ -924,7 +985,7 @@
 
   <div class="page-stack" class:tool-passthrough={passthrough}>
     <canvas bind:this={canvasEl} class="canvas" aria-label={label}></canvas>
-    <div bind:this={textEl} class="textLayer"></div>
+    <div bind:this={textEl} class="text-host"></div>
 
     {#if viewport}
       <AnnotLayer
@@ -935,6 +996,19 @@
         activeMatch={search.active}
         {preview}
       />
+      {#if tool === "ocr" && gesture?.kind === "box"}
+        {@const box = toViewportRect(viewport, normalizeRect(gesture.origin, gesture.current))}
+        <div class="ocr-marquee" style:left="{box.left}px" style:top="{box.top}px" style:width="{box.width}px" style:height="{box.height}px"></div>
+      {:else if ocrRegion}
+        <div
+          class="ocr-marquee"
+          class:reading={ocrRegion.reading}
+          style:left="{ocrRegion.box.left}px"
+          style:top="{ocrRegion.box.top}px"
+          style:width="{ocrRegion.box.width}px"
+          style:height="{ocrRegion.box.height}px"
+        ></div>
+      {/if}
       <AnnotWidgets
         {annots}
         {viewport}
@@ -1006,6 +1080,18 @@
       />
     {/if}
 
+    {#if viewport && ocrRegion}
+      <OcrResult
+        x={ocrRegion.box.left}
+        y={ocrRegion.box.top + ocrRegion.box.height}
+        pageWidth={viewport.width}
+        text={ocrRegion.text}
+        reading={ocrRegion.reading}
+        copied={ocrRegion.copied}
+        onClose={() => (ocrRegion = null)}
+      />
+    {/if}
+
     {#if viewport && activeComment && activeCommentAnnot}
       <CommentPopup
         annot={activeCommentAnnot}
@@ -1041,11 +1127,37 @@
     display: block;
   }
 
+  /* Holds the pdf.js text layer (see `mountTextLayer`); never takes clicks itself. */
+  .text-host {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
   .surface {
     position: absolute;
     inset: 0;
     z-index: 5;
     touch-action: none;
+  }
+
+  /* The region OCR tool's box: drawn above the page, never in the way. */
+  .ocr-marquee {
+    position: absolute;
+    z-index: 6;
+    border: 1.5px dashed var(--accent);
+    background: rgb(37 99 235 / 10%);
+    pointer-events: none;
+  }
+
+  .ocr-marquee.reading {
+    animation: ocr-pulse 1s ease-in-out infinite alternate;
+  }
+
+  @keyframes ocr-pulse {
+    to {
+      background: rgb(37 99 235 / 22%);
+    }
   }
 
   /* Text tools need the text layer beneath to receive the pointer. */

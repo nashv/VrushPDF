@@ -25,6 +25,8 @@ import {
   PDFRef,
   PDFString,
   StandardFonts,
+  concatTransformationMatrix,
+  pushGraphicsState,
 } from "pdf-lib";
 
 import { makePng } from "./fixtures/png.ts";
@@ -41,6 +43,7 @@ import { shownText } from "../src/lib/content/text.ts";
 import { detectBlocks, type TextRun } from "../src/lib/content/blocks.ts";
 import { createFreeText, createRedact, freeTextRectAt } from "../src/lib/annotations/create.ts";
 import { applyRedactionsToDocument, sanitizeContentStream } from "../src/lib/annotations/redact.ts";
+import { addOcrText, embedOcrFont, type OcrWord } from "../src/lib/annotations/ocrText.ts";
 import { parsePageRange, extractPages, splitByInterval } from "../src/lib/annotations/split.ts";
 import { generateHeadersFooters } from "../src/lib/annotations/headersFooters.ts";
 import { generateWatermarks } from "../src/lib/annotations/watermark.ts";
@@ -66,14 +69,23 @@ const MAIN = "main";
 const PAGE_COUNT = 3;
 
 let failures = 0;
-function check(label: string, fn: () => void) {
-  try {
-    fn();
-    console.log(`  ok   ${label}`);
-  } catch (err) {
+/** Async checks still running; the summary waits for them. */
+const pending: Promise<void>[] = [];
+
+function check(label: string, fn: () => void | Promise<void>) {
+  const pass = () => console.log(`  ok   ${label}`);
+  const fail = (err: unknown) => {
     failures++;
     console.error(`  FAIL ${label}`);
     console.error(`       ${err instanceof Error ? err.message : String(err)}`);
+  };
+  try {
+    const result = fn();
+    // An async check used to be reported "ok" before it had run at all.
+    if (result instanceof Promise) pending.push(result.then(pass, fail));
+    else pass();
+  } catch (err) {
+    fail(err);
   }
 }
 
@@ -1240,9 +1252,17 @@ async function main() {
     testPage.drawText("Other Public Footnote", { x: 50, y: 580, size: 10, font });
     const rawPdfBytes = await testDoc.save({ useObjectStreams: false });
 
-    // Verify original contains the secret text in its bytes
-    const originalText = new TextDecoder("latin1").decode(rawPdfBytes);
-    assert.ok(originalText.includes("987-654-3210"));
+    // Read text the way a viewer does: content streams are compressed and
+    // pdf-lib writes strings in hex, so the raw bytes never show it.
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const textOf = async (bytes: Uint8Array) => {
+      const loaded = await pdfjs.getDocument({ data: bytes.slice(), useSystemFonts: false, verbosity: 0 }).promise;
+      const content = await (await loaded.getPage(1)).getTextContent();
+      return content.items.map((i) => ("str" in i ? i.str : "")).join(" ");
+    };
+
+    // Verify the original really carries the secret text
+    assert.ok((await textOf(rawPdfBytes)).includes("987-654-3210"));
 
     // 2. Apply redaction over the region with Secret Account
     const redactResult = await applyRedactionsToDocument({
@@ -1263,21 +1283,79 @@ async function main() {
 
     assert.equal(redactResult.redactionsApplied, 1);
 
-    // 3. Inspect sanitized PDF bytes
-    const sanitizedText = new TextDecoder("latin1").decode(redactResult.bytes);
+    // 3. Inspect the sanitized PDF as a viewer would
+    const sanitizedText = await textOf(redactResult.bytes);
 
-    // The sensitive account number must NOT exist in the file bytes
+    // The sensitive account number must be gone from the text
     assert.equal(sanitizedText.includes("987-654-3210"), false, "Secret text was not excised!");
 
     // Public text outside the redaction must remain intact
     assert.ok(sanitizedText.includes("Public Title"), "Public title should be preserved");
     assert.ok(sanitizedText.includes("Other Public Footnote"), "Public footnote should be preserved");
 
-    // Permanent vector block must be baked in
-    assert.ok(sanitizedText.includes("re f") || sanitizedText.includes("re"), "Baked vector block should be present");
+    // The overlay label is baked into the page content
     assert.ok(sanitizedText.includes("[REDACTED]"), "Overlay text should be baked into content stream");
+
+    // And so is the black box: a filled rectangle in the page's drawing ops
+    const ops = await (await (await pdfjs.getDocument({ data: redactResult.bytes.slice(), verbosity: 0 }).promise).getPage(1)).getOperatorList();
+    assert.ok(ops.fnArray.includes(pdfjs.OPS.constructPath), "Baked vector block should be present");
   });
 
+  console.log("\nOCR text layer…");
+  {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([612, 792]);
+    // Stand-in for scan content that leaves its graphics state dirty: an
+    // unbalanced `q` and a scaled CTM must not shift the OCR layer.
+    page.pushOperators(pushGraphicsState(), concatTransformationMatrix(0.5, 0, 0, 0.5, 0, 0));
+    const font = await embedOcrFont(doc);
+    const words: OcrWord[] = [
+      { text: "Invoice", x: 72, y: 700, dirX: 1, dirY: 0, width: 60, size: 14, lineEnd: false },
+      { text: "Müller", x: 140, y: 700, dirX: 1, dirY: 0, width: 50, size: 14, lineEnd: false },
+      { text: "ﬁle", x: 196, y: 700, dirX: 1, dirY: 0, width: 24, size: 14, lineEnd: false },
+      { text: "Łódź", x: 226, y: 700, dirX: 1, dirY: 0, width: 36, size: 14, lineEnd: true },
+      // Running up the page, as on a scan turned sideways.
+      { text: "Sideways", x: 500, y: 100, dirX: 0, dirY: 1, width: 80, size: 12, lineEnd: true },
+    ];
+    const written = addOcrText(doc, page, words, font);
+    const bytes = await doc.save();
+
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const loaded = await pdfjs.getDocument({ data: bytes.slice(), useSystemFonts: false, verbosity: 0 }).promise;
+    const content = await (await loaded.getPage(1)).getTextContent();
+    const items = content.items.filter((i): i is (typeof content.items)[number] & { str: string; transform: number[]; width: number } => "str" in i && i.str.trim() !== "");
+    const text = items.map((i) => i.str).join("");
+    const find = (word: string) => items.find((i) => i.str.includes(word));
+
+    check("every word is written", () => assert.equal(written, words.length));
+    check("pdf.js extracts the OCR words, so search and copy see them", () => {
+      for (const word of ["Invoice", "Müller", "file", "?ód?", "Sideways"]) {
+        assert.ok(text.includes(word), `${word} missing from: ${text}`);
+      }
+    });
+    check("words land where the scan shows them, despite the page's dirty graphics state", () => {
+      const invoice = find("Invoice")!;
+      assertClose("invoice x", invoice.transform[4], 72, 0.5);
+      assertClose("invoice y", invoice.transform[5], 700, 0.5);
+    });
+    check("each word is stretched to the width the scan shows", () => {
+      // pdf.js merges a baseline's words into one item: 72 to 262 pt here.
+      const line = find("Invoice")!;
+      assertClose("line width", line.width, 190, 1);
+    });
+    check("words follow the scan's direction", () => {
+      const side = find("Sideways")!;
+      assertClose("sideways a", side.transform[0], 0, 0.01);
+      assert.ok(side.transform[1] > 0, `matrix ${side.transform.join(",")}`);
+    });
+    const ops = await (await loaded.getPage(1)).getOperatorList();
+    const modes = ops.fnArray.flatMap((fn, i) => (fn === pdfjs.OPS.setTextRenderingMode ? [ops.argsArray[i][0]] : []));
+    check("the layer is invisible (render mode 3), so the page looks unchanged", () => {
+      assert.deepEqual(modes, [3]);
+    });
+  }
+
+  await Promise.all(pending);
   console.log(
     failures === 0 ? "\nAll round-trip checks passed." : `\n${failures} check(s) FAILED.`,
   );

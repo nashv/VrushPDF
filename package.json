@@ -7,8 +7,9 @@
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
-    "prepare": "node scripts/copy-pdfjs-assets.mjs && (svelte-kit sync || echo '')",
+    "prepare": "node scripts/copy-pdfjs-assets.mjs && node scripts/copy-ocr-assets.mjs && (svelte-kit sync || echo '')",
     "pdfjs-assets": "node scripts/copy-pdfjs-assets.mjs",
+    "ocr-assets": "node scripts/copy-ocr-assets.mjs",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "verify:roundtrip": "tsx scripts/verify-roundtrip.ts",
@@ -26,8 +27,15 @@
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.7.3",
     "@tauri-apps/plugin-opener": "^2",
+    "@tesseract.js-data/deu": "^1.0.0",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "@tesseract.js-data/fra": "^1.0.0",
+    "@tesseract.js-data/ita": "^1.0.0",
+    "@tesseract.js-data/nld": "^1.0.0",
+    "@tesseract.js-data/spa": "^1.0.0",
     "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "^6.3.289"
+    "pdfjs-dist": "^6.3.289",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^0.0.17",

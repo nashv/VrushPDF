@@ -86,6 +86,7 @@ const TOOL_GROUPS: { tool: Tool; label: string }[][] = [
     { tool: "select", label: "Select" },
     { tool: "pan", label: "Pan" },
     { tool: "text", label: "Select Text" },
+    { tool: "ocr", label: "Copy Text from Scan (OCR)" },
   ],
   [
     { tool: "highlight", label: "Highlight" },
@@ -151,6 +152,12 @@ function fileMenu(recentsSubmenu: Submenu, quit: Spec[]): Spec {
         label: "Split & Extract Pages…",
         enabled: hasDoc,
         action: () => session.openSplitDialog(),
+      }),
+      item({
+        id: "file.ocr",
+        label: "Recognise Text (OCR)…",
+        enabled: hasDoc,
+        action: () => session.openOcrDialog(),
       }),
       item({
         id: "file.watermark",

@@ -11,7 +11,7 @@
     | "chevron-left" | "chevron-right" | "chevron-up" | "chevron-down" | "close" | "check"
     | "front" | "warning" | "file" | "lock"
     | "split" | "watermark" | "header-footer" | "two-page" | "reading-mode" | "presentation"
-    | "ruler" | "command" | "align-left" | "align-center" | "align-right"
+    | "ruler" | "ocr" | "command" | "align-left" | "align-center" | "align-right"
     | "align-top" | "align-middle" | "align-bottom" | "distribute-h" | "distribute-v";
 </script>
 
@@ -58,6 +58,7 @@
     thumbnails: "M4 4h7v7H4Z M13 4h7v7h-7Z M4 13h7v7H4Z M13 13h7v7h-7Z",
     list: "M4 6h2 M9 6h11 M4 12h2 M9 12h11 M4 18h2 M9 18h11",
     outline: "M4 5h16 M8 10h12 M8 15h12 M4 20h16",
+    ocr: "M4 8V4h4 M16 4h4v4 M20 16v4h-4 M8 20H4v-4 M8 9h8 M12 9v7",
     search: "M10 4a6 6 0 1 0 0 12 6 6 0 1 0 0-12Z M14.5 14.5L20 20",
     "rotate-cw": "M20 11a8 8 0 1 1-3-6 M20 4v5h-5",
     "rotate-ccw": "M4 11a8 8 0 1 0 3-6 M4 4v5h5",

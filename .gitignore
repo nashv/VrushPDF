@@ -8,3 +8,6 @@ node_modules
 !.env.example
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Tesseract.js worker, engines and language models; `npm run ocr-assets` copies them.
+/static/ocr

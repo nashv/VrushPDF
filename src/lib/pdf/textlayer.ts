@@ -16,31 +16,47 @@ export interface TextLayerHandle {
 }
 
 /**
- * Build the text layer inside `container`.
+ * Build the text layer in a `.textLayer` element of its own inside `host`.
+ *
+ * Its own element, so a mount that is superseded mid-render (the zoom often
+ * settles while the first one runs) takes its text away with it. Rendering
+ * into a shared container left the stale mount's spans behind, and the page's
+ * text was then selected and copied twice.
  *
  * `--total-scale-factor` is the variable pdf.js's stylesheet uses to size the
  * text runs, so it has to track the viewport scale.
  */
 export async function mountTextLayer(
   page: PDFPageProxy,
-  container: HTMLElement,
+  host: HTMLElement,
   viewport: PageViewport,
 ): Promise<TextLayerHandle> {
+  const container = document.createElement("div");
+  container.className = "textLayer";
   container.style.setProperty("--total-scale-factor", String(viewport.scale));
+  host.append(container);
 
   const layer = new pdfjs.TextLayer({
     textContentSource: page.streamTextContent(),
     container,
     viewport,
   });
-  await layer.render();
+  try {
+    await layer.render();
+  } catch (err) {
+    container.remove();
+    throw err;
+  }
 
   return {
     update(next: PageViewport) {
       container.style.setProperty("--total-scale-factor", String(next.scale));
       layer.update({ viewport: next });
     },
-    cancel: () => layer.cancel(),
+    cancel: () => {
+      layer.cancel();
+      container.remove();
+    },
     get items() {
       return layer.textContentItemsStr;
     },

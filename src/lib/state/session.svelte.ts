@@ -11,14 +11,17 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { PDFDocument } from "pdf-lib";
 
 import { DEFAULT_PAGE_SIZE } from "$lib/annotations/blank";
 import { importAnnots } from "$lib/annotations/import";
 import { optimizePdf, type OptimizeOptions } from "$lib/annotations/optimize";
+import { addOcrText, embedOcrFont, markOcrProducer, type OcrWord } from "$lib/annotations/ocrText";
 import { applyRedactionsToDocument, type RedactTarget } from "$lib/annotations/redact";
 import { buildSavedPdf, type SourceBytes } from "$lib/annotations/save";
 import { isRedact, isStamp, type Annot, type PageEntry } from "$lib/annotations/types";
 import type { ImageSource } from "$lib/annotations/write";
+import { pageHasText, recognizePage, type OcrLanguage } from "$lib/ocr/engine";
 import { PasswordRequired } from "$lib/pdf/pdfjs";
 import { printPdf } from "$lib/pdf/print";
 import {
@@ -91,6 +94,18 @@ class Session {
   headerFooterOpen = $state(false);
   /** True while the command palette is up. */
   commandPaletteOpen = $state(false);
+  /** True while the OCR dialog is up. */
+  ocrOpen = $state(false);
+  /** Set while a cancellable job runs; the busy indicator shows a Cancel button. */
+  cancelBusy = $state<(() => void) | null>(null);
+
+  openOcrDialog() {
+    this.ocrOpen = true;
+  }
+
+  closeOcrDialog() {
+    this.ocrOpen = false;
+  }
 
   openSplitDialog() {
     this.splitOpen = true;
@@ -496,37 +511,126 @@ class Session {
         pageRedactions,
       });
 
-      const page = tab.view.currentPage;
-      const zoom = tab.view.zoom;
-      const scrollTop = tab.view.scrollTop;
-
-      const source = await tab.doc.openMain(
-        sanitized.bytes,
-        tab.doc.path,
-        tab.doc.password,
-        tab.doc.name,
-      );
-      const pages = planFor(source);
-      const { annots, suppress, managedRefs } = await importAnnots(sanitized.bytes, pages);
-
-      tab.doc.setManagedRefs(MAIN_DOC, managedRefs);
-      tab.doc.suppressOnCanvas(MAIN_DOC, suppress);
-
-      tab.edits.reset(pages, annots);
-      tab.edits.dirty = true;
-
-      tab.view.zoom = zoom;
-      tab.view.scrollTop = scrollTop;
-      tab.view.currentPage = Math.min(page, Math.max(pages.length - 1, 0));
-
-      tab.search.clear();
-      tab.view.goToPage(tab.view.currentPage);
+      await this.#reloadTransformed(tab, sanitized.bytes);
 
       this.notify(`Permanently applied ${count} redaction(s). Underlying text & data excised.`);
       return true;
     });
 
     return ok === true;
+  }
+
+  /**
+   * Make pages searchable: OCR them and add the text as an invisible layer.
+   *
+   * Like applying redactions, this rewrites the document: the current edits
+   * are built into a PDF, the text layer is added to it, and the result is
+   * reopened as the tab's (unsaved) document. pdf.js then sees the new text
+   * like any other, so search, selection and copy work with no extra code.
+   * `pageIndices` are plan indices.
+   */
+  async makeSearchable(
+    tab: DocumentTab,
+    options: { pageIndices: number[]; langs: OcrLanguage[]; skipPagesWithText: boolean },
+  ): Promise<boolean> {
+    if (!tab.isOpen || options.pageIndices.length === 0) return false;
+    if (!license.allow("Making a document searchable")) return false;
+
+    let cancelled = false;
+    this.cancelBusy = () => {
+      cancelled = true;
+    };
+
+    try {
+      const done = await this.#withBusy("Recognising text…", async () => {
+        const found = new Map<number, OcrWord[]>();
+        let skipped = 0;
+        const total = options.pageIndices.length;
+
+        for (const [n, index] of options.pageIndices.entries()) {
+          if (cancelled) return "cancelled";
+          const entry = tab.edits.pages[index];
+          if (!entry) continue;
+          const page = await tab.doc.page(entry.sourceDocId, entry.srcIndex);
+          if (options.skipPagesWithText && (await pageHasText(page))) {
+            skipped++;
+            continue;
+          }
+          const label = total > 1 ? `Recognising text… page ${index + 1} (${n + 1} of ${total})` : "Recognising text…";
+          this.busy = label;
+          const result = await recognizePage(page, entry.rotation, options.langs, (f) => {
+            this.busy = `${label} ${Math.round(f * 100)}%`;
+          });
+          if (result.words.length > 0) found.set(index, result.words);
+        }
+        if (cancelled) return "cancelled";
+
+        if (found.size === 0) {
+          this.notify(
+            skipped > 0
+              ? `No text added: ${skipped} page(s) already had text, and no text was found on the rest.`
+              : "No text was found on the selected pages.",
+          );
+          return "nothing";
+        }
+
+        this.busy = "Adding the text layer…";
+        // Past this point the document is rewritten, so cancelling stops here.
+        this.cancelBusy = null;
+        const built = await buildSavedPdf({
+          pages: $state.snapshot(tab.edits.pages),
+          annots: $state.snapshot(tab.edits.annots),
+          mainDocId: MAIN_DOC,
+          getSource: this.#sourceBytes(tab),
+          resolveImage: this.#resolveImage,
+          fields: $state.snapshot(tab.edits.fields),
+        });
+        const doc = await PDFDocument.load(built.bytes, { ignoreEncryption: true, updateMetadata: false });
+        const font = await embedOcrFont(doc);
+        let words = 0;
+        for (const [index, pageWords] of found) {
+          words += addOcrText(doc, doc.getPage(index), pageWords, font);
+        }
+        markOcrProducer(doc);
+        await this.#reloadTransformed(tab, await doc.save());
+
+        const extra = skipped > 0 ? ` ${skipped} page(s) already had text and were left alone.` : "";
+        this.notify(`Made ${found.size} page(s) searchable: ${words} words recognised.${extra}`);
+        return "done";
+      });
+      if (done === "cancelled") this.notify("Text recognition cancelled. The document was not changed.");
+      return done === "done";
+    } finally {
+      this.cancelBusy = null;
+    }
+  }
+
+  /**
+   * Reopen `bytes`, a rewritten version of the tab's document, as its unsaved
+   * current state, keeping the user's place. Undo history starts over: the
+   * rewrite cannot be stepped back through.
+   */
+  async #reloadTransformed(tab: DocumentTab, bytes: Uint8Array) {
+    const page = tab.view.currentPage;
+    const zoom = tab.view.zoom;
+    const scrollTop = tab.view.scrollTop;
+
+    const source = await tab.doc.openMain(bytes, tab.doc.path, tab.doc.password, tab.doc.name);
+    const pages = planFor(source);
+    const { annots, suppress, managedRefs } = await importAnnots(bytes, pages);
+
+    tab.doc.setManagedRefs(MAIN_DOC, managedRefs);
+    tab.doc.suppressOnCanvas(MAIN_DOC, suppress);
+
+    tab.edits.reset(pages, annots);
+    tab.edits.dirty = true;
+
+    tab.view.zoom = zoom;
+    tab.view.scrollTop = scrollTop;
+    tab.view.currentPage = Math.min(page, Math.max(pages.length - 1, 0));
+
+    tab.search.clear();
+    tab.view.goToPage(tab.view.currentPage);
   }
 
   /**
