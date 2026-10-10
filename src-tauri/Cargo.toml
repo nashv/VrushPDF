@@ -1,6 +1,6 @@
 [package]
 name = "vrushpdf"
-version = "0.5.12"
+version = "1.0.0"
 description = "A desktop PDF viewer and annotation editor"
 authors = ["nashv"]
 license-file = "../LICENSE"
