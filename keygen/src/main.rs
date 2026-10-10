@@ -1,14 +1,18 @@
 //! Issues VrushPDF license keys on this computer. No server is involved: the
 //! app checks each key's signature offline.
 //!
-//!   npm run keygen -- init                      # once: make the signing key
+//!   npm run keygen -- init                      # once per machine: make a signing key
 //!   npm run keygen -- issue someone@example.com # print a key for a buyer
 //!   npm run keygen -- show <key>                # who a key is for, and its id
-//!   npm run keygen -- check                     # verify keypair health & sync
+//!   npm run keygen -- check                     # verify this machine can issue keys
 //!
 //! The private key lives in `~/.vrushpdf-signing-key`, or wherever
-//! `VRUSHPDF_SIGNING_KEY` points. Keep a copy somewhere safe: without it no new
-//! key can be issued that existing copies of the app accept.
+//! `VRUSHPDF_SIGNING_KEY` points. Each machine that issues keys has its own;
+//! the app trusts every public key listed in `src-tauri/src/license_key.pub`.
+//! `init` only ever appends to that list, so making a new signing key can never
+//! invalidate keys already sold. A new key works in the next release built
+//! with it. Back the private key up: an app build trusts it only as long as
+//! the list names it, and a lost one cannot issue keys again.
 
 #[path = "../../src-tauri/src/license_key.rs"]
 mod license_key;
@@ -20,17 +24,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use ed25519_dalek::SigningKey;
+use ed25519_dalek::{SigningKey, VerifyingKey};
 
 use license_key::Payload;
 
 /// What the app is built with, to catch issuing keys it would refuse.
-const APP_PUBLIC_KEY: &str = include_str!("../../src-tauri/src/license_key.pub");
-const APP_PUBLIC_KEY_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../src-tauri/src/license_key.pub");
+const APP_PUBLIC_KEYS: &str = include_str!("../../src-tauri/src/license_key.pub");
+const APP_PUBLIC_KEYS_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../src-tauri/src/license_key.pub");
 const REVOKED: &str = include_str!("../../src-tauri/src/revoked_keys.txt");
 
 const USAGE: &str = "\
-usage: keygen init [--force]        make the signing key and write the app's public key
+usage: keygen init [--force]        make this machine's signing key and trust its public key
        keygen issue <email>...      print a license key for each buyer
        keygen show <key>            check a key and print who it was issued to
        keygen check                 verify signing key and public key synchronization";
@@ -69,18 +73,21 @@ fn random<const N: usize>() -> [u8; N] {
     bytes
 }
 
-fn read_disk_public_key() -> Result<String, String> {
-    fs::read_to_string(APP_PUBLIC_KEY_PATH)
-        .map(|s| s.trim().to_string())
-        .map_err(|e| format!("cannot read {APP_PUBLIC_KEY_PATH}: {e}"))
+fn read_disk_public_keys() -> Result<String, String> {
+    fs::read_to_string(APP_PUBLIC_KEYS_PATH).map_err(|e| format!("cannot read {APP_PUBLIC_KEYS_PATH}: {e}"))
+}
+
+fn trusts(list: &str, key: &VerifyingKey) -> bool {
+    license_key::parse_public_keys(list).is_some_and(|keys| keys.contains(key))
 }
 
 fn init(force: bool) -> Result<(), String> {
     let path = key_path()?;
     if path.exists() && !force {
         return Err(format!(
-            "{} already exists. Replacing it invalidates every key issued so far; \
-             pass --force if that is really what you want.",
+            "{} already exists. A new one only adds a key the app trusts; keys issued \
+             with the old one stay valid while license_key.pub lists it. Pass --force \
+             to replace it anyway, after backing it up.",
             path.display()
         ));
     }
@@ -92,13 +99,21 @@ fn init(force: bool) -> Result<(), String> {
         use std::os::unix::fs::PermissionsExt;
         let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
     }
+
+    // Append, never replace: dropping a listed key would void every key it signed.
     let public = license_key::encode_public_key(&signing.verifying_key());
-    fs::write(APP_PUBLIC_KEY_PATH, public + "\n").map_err(|e| format!("{APP_PUBLIC_KEY_PATH}: {e}"))?;
+    let mut list = read_disk_public_keys()?;
+    if !list.is_empty() && !list.ends_with('\n') {
+        list.push('\n');
+    }
+    list.push_str(&format!("{public}  # added by keygen init\n"));
+    fs::write(APP_PUBLIC_KEYS_PATH, list).map_err(|e| format!("{APP_PUBLIC_KEYS_PATH}: {e}"))?;
+
     println!("signing key:  {} (back this up; it never goes in the repo)", path.display());
-    println!("public key:   src-tauri/src/license_key.pub (commit this)");
-    println!("\n[IMPORTANT] A new signing keypair has been generated.");
-    println!("Any previously compiled binaries will NOT accept keys signed by this new key.");
-    println!("Rebuild the application (`npm run tauri build`) to embed the new public key.");
+    println!("public key:   {public}");
+    println!("              appended to src-tauri/src/license_key.pub (commit this)");
+    println!("\nKeys from this signing key work in app builds that include it: commit,");
+    println!("rebuild (`npm run tauri build`) and release before handing any out.");
     Ok(())
 }
 
@@ -112,24 +127,26 @@ fn signing_key() -> Result<SigningKey, String> {
         .and_then(|b| b.try_into().ok())
         .ok_or_else(|| format!("{} is not a valid 32-byte Ed25519 signing key", path.display()))?;
     let signing = SigningKey::from_bytes(&bytes);
-    let derived_pub = signing.verifying_key();
+    let derived = signing.verifying_key();
 
-    // 1. Verify against the disk copy of license_key.pub
-    if let Ok(disk_pub) = read_disk_public_key() {
-        if license_key::parse_public_key(&disk_pub) != Some(derived_pub) {
+    // 1. Trusted by the list on disk, i.e. by the next build of the app.
+    if let Ok(list) = read_disk_public_keys() {
+        if !trusts(&list, &derived) {
             return Err(format!(
-                "{} does not match src-tauri/src/license_key.pub on disk.\n\
-                 Keys issued with this signing key would be rejected by newly built apps.\n\
+                "{} is not listed in src-tauri/src/license_key.pub.\n\
+                 Apps built from this checkout would reject its keys. Add its public key\n\
+                 ({}) to that list, or use the signing key of a machine that is listed.\n\
                  Run `npm run keygen -- check` for diagnostics.",
-                path.display()
+                path.display(),
+                license_key::encode_public_key(&derived)
             ));
         }
     }
 
-    // 2. Verify against the compiled-in copy of license_key.pub
-    if license_key::parse_public_key(APP_PUBLIC_KEY) != Some(derived_pub) {
+    // 2. Trusted by the list compiled into this keygen.
+    if !trusts(APP_PUBLIC_KEYS, &derived) {
         return Err(format!(
-            "{} does not match the public key compiled into keygen.\n\
+            "{} is not in the public keys compiled into keygen.\n\
              Rebuild keygen with `cargo clean -p vrushpdf-keygen` and re-run.",
             path.display()
         ));
@@ -140,7 +157,7 @@ fn signing_key() -> Result<SigningKey, String> {
 
 fn check_git_status() -> Option<String> {
     let output = std::process::Command::new("git")
-        .args(["status", "--porcelain", APP_PUBLIC_KEY_PATH])
+        .args(["status", "--porcelain", APP_PUBLIC_KEYS_PATH])
         .output()
         .ok()?;
     if output.status.success() {
@@ -182,10 +199,10 @@ fn issue(emails: &[String]) -> Result<(), String> {
 }
 
 fn show(key: &str) -> Result<(), String> {
-    let public_str = read_disk_public_key().unwrap_or_else(|_| APP_PUBLIC_KEY.to_string());
-    let public = license_key::parse_public_key(&public_str)
-        .ok_or("src-tauri/src/license_key.pub is not a valid public key")?;
-    let payload = license_key::open(key, &public)
+    let list = read_disk_public_keys().unwrap_or_else(|_| APP_PUBLIC_KEYS.to_string());
+    let public = license_key::parse_public_keys(&list)
+        .ok_or("src-tauri/src/license_key.pub is not a valid list of public keys")?;
+    let payload = license_key::open_any(key, &public)
         .ok_or("Not a valid key for this build of the app: wrong signature, or not a whole key.")?;
     println!("email:   {}", payload.email);
     println!("id:      {}", payload.id);
@@ -221,38 +238,33 @@ fn check() -> Result<(), String> {
     let derived_pub = signing.verifying_key();
     let encoded_derived = license_key::encode_public_key(&derived_pub);
     println!("   Status: Valid 32-byte Ed25519 signing key");
+    println!("   Public key: {encoded_derived}");
 
-    // 3. Check public key on disk
-    println!("2. Public key file: {}", APP_PUBLIC_KEY_PATH);
-    let disk_pub_str = read_disk_public_key()?;
-    let disk_pub = license_key::parse_public_key(&disk_pub_str)
-        .ok_or_else(|| "FAIL: src-tauri/src/license_key.pub cannot be parsed as Ed25519 public key".to_string())?;
-    println!("   Status: Valid Ed25519 public key ({})", disk_pub_str);
+    // 3. Check the trusted list on disk
+    println!("2. Trusted public keys: {}", APP_PUBLIC_KEYS_PATH);
+    let disk_list = read_disk_public_keys()?;
+    let disk_keys = license_key::parse_public_keys(&disk_list)
+        .ok_or_else(|| "FAIL: src-tauri/src/license_key.pub has an entry that is not an Ed25519 public key".to_string())?;
+    for key in &disk_keys {
+        let mark = if *key == derived_pub { "  <- this machine" } else { "" };
+        println!("   {}{mark}", license_key::encode_public_key(key));
+    }
 
-    // 4. Verify derived matches disk
-    if disk_pub != derived_pub {
+    // 4. This machine's key must be one of them
+    if !disk_keys.contains(&derived_pub) {
         return Err(format!(
-            "FAIL: Public key mismatch!\n\
-             Derived from private key: {}\n\
-             On-disk license_key.pub:  {}",
-            encoded_derived, disk_pub_str
+            "FAIL: this machine's public key is not in license_key.pub.\n\
+             Add this line to src-tauri/src/license_key.pub, commit and release:\n\
+             {encoded_derived}"
         ));
     }
-    println!("   Status: Matches private signing key");
+    println!("   Status: Lists this machine's signing key");
 
-    // 5. Check compiled-in public key
-    let compiled_pub = license_key::parse_public_key(APP_PUBLIC_KEY)
-        .ok_or_else(|| "FAIL: Compiled-in public key is invalid".to_string())?;
-    if compiled_pub != derived_pub {
-        return Err(format!(
-            "FAIL: Compiled-in public key mismatch!\n\
-             Derived from private key: {}\n\
-             Compiled into keygen:     {}",
-            encoded_derived,
-            license_key::encode_public_key(&compiled_pub)
-        ));
+    // 5. And so must the list compiled into this keygen
+    if !trusts(APP_PUBLIC_KEYS, &derived_pub) {
+        return Err("FAIL: the keys compiled into keygen are stale; run `cargo clean -p vrushpdf-keygen`".to_string());
     }
-    println!("3. Compiled-in public key: Matches private signing key");
+    println!("3. Compiled-in public keys: List this machine's signing key");
 
     // 6. Test issue & verify roundtrip
     let test_payload = Payload {
@@ -262,7 +274,7 @@ fn check() -> Result<(), String> {
         iat: 1_800_000_000,
     };
     let test_key = license_key::sign(&test_payload, &signing);
-    let verified = license_key::open(&test_key, &derived_pub)
+    let verified = license_key::open_any(&test_key, &disk_keys)
         .ok_or_else(|| "FAIL: Test key signature verification failed".to_string())?;
     if verified != test_payload {
         return Err("FAIL: Verified test payload does not match original".to_string());
@@ -277,7 +289,7 @@ fn check() -> Result<(), String> {
         println!("5. Git status: Clean (src-tauri/src/license_key.pub is committed)");
     }
 
-    println!("\nSUCCESS: License system is completely synchronized and functional.");
+    println!("\nSUCCESS: this machine can issue keys that apps built from this checkout accept.");
     Ok(())
 }
 

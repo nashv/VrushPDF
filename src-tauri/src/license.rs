@@ -2,7 +2,7 @@
 //!
 //! A license key is signed by the keygen (`keygen/`) and carries the buyer's
 //! email; see `license_key.rs` for the format. The app checks the signature
-//! against the public half compiled in from `license_key.pub`, every time it
+//! against the public keys compiled in from `license_key.pub`, every time it
 //! asks, so editing `license.json` by hand gets nowhere. Nothing here touches
 //! the network. A key that has to stop working (a refund, a leak) goes in
 //! `revoked_keys.txt` and stops working in the next release.
@@ -35,12 +35,13 @@ pub const BUY_URL: &str = match option_env!("VRUSHPDF_BUY_URL") {
     None => "https://vrushpdf.app/buy",
 };
 
-/// The keygen's public key. Written by `npm run keygen -- init`.
-const PUBLIC_KEY: &str = include_str!("license_key.pub");
+/// The keygens' public keys. `npm run keygen -- init` adds to it.
+const PUBLIC_KEYS: &str = include_str!("license_key.pub");
 const REVOKED: &str = include_str!("revoked_keys.txt");
 
-fn verifying_key() -> VerifyingKey {
-    license_key::parse_public_key(PUBLIC_KEY).expect("license_key.pub is not an Ed25519 public key")
+fn verifying_keys() -> Vec<VerifyingKey> {
+    // build.rs has already refused a list that doesn't parse.
+    license_key::parse_public_keys(PUBLIC_KEYS).expect("license_key.pub is not a list of Ed25519 public keys")
 }
 
 // -------------------------------------------------------------------- storage
@@ -136,11 +137,11 @@ impl Status {
 }
 
 /// The license state implied by `stored` at time `now`. Pure, for the tests.
-fn evaluate(stored: &Stored, now: u64, key: &VerifyingKey, revoked: &str) -> Status {
+fn evaluate(stored: &Stored, now: u64, keys: &[VerifyingKey], revoked: &str) -> Status {
     let now = now.max(stored.last_seen);
     let status = |state, days_left| Status { state, days_left, email: None, key_id: None, buy_url: BUY_URL };
 
-    if let Some(payload) = stored.key.as_deref().and_then(|k| license_key::open(k, key)) {
+    if let Some(payload) = stored.key.as_deref().and_then(|k| license_key::open_any(k, keys)) {
         let state = if license_key::is_listed(revoked, &payload.id) { State::Revoked } else { State::Licensed };
         return Status { email: Some(payload.email), key_id: Some(payload.id), ..status(state, None) };
     }
@@ -163,7 +164,7 @@ pub fn status() -> Status {
         if t > stored.last_seen + 3600 {
             stored.last_seen = t;
         }
-        evaluate(stored, t, &verifying_key(), REVOKED)
+        evaluate(stored, t, &verifying_keys(), REVOKED)
     })
 }
 
@@ -175,7 +176,7 @@ pub fn can_edit() -> bool {
 
 /// Checks `input` and keeps it. Nothing leaves the machine.
 pub fn activate(input: &str) -> Result<Status, String> {
-    let payload = license_key::open(input, &verifying_key()).ok_or(
+    let payload = license_key::open_any(input, &verifying_keys()).ok_or(
         "That isn't a valid VrushPDF license key. Copy the whole key from your purchase email; it starts with VRSH.",
     )?;
     if license_key::is_listed(REVOKED, &payload.id) {
@@ -209,7 +210,7 @@ mod tests {
     }
 
     fn eval(stored: &Stored, now: u64) -> Status {
-        evaluate(stored, now, &signer().verifying_key(), "")
+        evaluate(stored, now, &[signer().verifying_key()], "")
     }
 
     #[test]
@@ -240,7 +241,7 @@ mod tests {
     #[test]
     fn a_listed_key_is_revoked() {
         let stored = Stored { key: Some(key_for("a@b.c")), ..Default::default() };
-        let status = evaluate(&stored, T0, &signer().verifying_key(), "# refunds\n3f9a0c2e\n");
+        let status = evaluate(&stored, T0, &[signer().verifying_key()], "# refunds\n3f9a0c2e\n");
         assert_eq!(status.state, State::Revoked);
         assert!(!status.can_edit());
     }
@@ -276,8 +277,8 @@ mod tests {
     }
 
     #[test]
-    fn the_shipped_public_key_parses() {
-        let _ = verifying_key();
+    fn the_shipped_public_keys_parse() {
+        assert!(!verifying_keys().is_empty());
     }
 
     /// A key from the real keygen, against the real `license_key.pub` and a

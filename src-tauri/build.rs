@@ -13,20 +13,26 @@ fn main() {
     let content = fs::read_to_string(pub_key_path)
         .unwrap_or_else(|e| panic!("src-tauri/src/license_key.pub does not exist: {e}"));
 
-    let trimmed = content.trim();
+    // One trusted public key per line; `#` starts a comment.
+    let keys: Vec<&str> = content
+        .lines()
+        .map(|line| line.split('#').next().unwrap_or("").trim())
+        .filter(|entry| !entry.is_empty())
+        .collect();
     assert!(
-        !trimmed.is_empty(),
-        "src-tauri/src/license_key.pub is empty. Run `npm run keygen -- init` or restore a valid key."
+        !keys.is_empty(),
+        "src-tauri/src/license_key.pub lists no public keys. Run `npm run keygen -- init` or restore it from git."
     );
 
-    let bytes = URL_SAFE_NO_PAD
-        .decode(trimmed)
-        .unwrap_or_else(|e| panic!("src-tauri/src/license_key.pub is not valid base64url text: {e}"));
-
-    assert_eq!(
-        bytes.len(),
-        32,
-        "src-tauri/src/license_key.pub decoded length is {} bytes, expected 32 bytes for Ed25519",
-        bytes.len()
-    );
+    for key in keys {
+        let bytes = URL_SAFE_NO_PAD.decode(key).unwrap_or_else(|e| {
+            panic!("src-tauri/src/license_key.pub: {key:?} is not valid base64url text: {e}")
+        });
+        assert_eq!(
+            bytes.len(),
+            32,
+            "src-tauri/src/license_key.pub: {key:?} decodes to {} bytes, expected 32 for Ed25519",
+            bytes.len()
+        );
+    }
 }

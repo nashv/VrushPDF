@@ -1,1 +1,7 @@
-udsfDBPOWStk0iikAi_UtCrLd0WONpZj1L09HXi_IIk
+# Public keys the app accepts license keys from: one per line, `#` comments.
+#
+# Every key here stays valid for good, so a new signing key never invalidates
+# the keys already sold. `npm run keygen -- init` appends; never delete a line
+# while keys signed by it are in use. Each private half stays on its machine.
+udsfDBPOWStk0iikAi_UtCrLd0WONpZj1L09HXi_IIk  # since 0.5.0 (the only key in 0.5.0–0.5.10)
+jQr95iCyOIoYMhQovOJHQzT4SAjefd36U_0Gx7IobtE  # releases before 0.5.0, trusted again from 0.5.11

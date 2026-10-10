@@ -3,8 +3,12 @@
 //!
 //! A key is `VRSH.<payload>.<signature>`: the payload is base64url JSON naming
 //! who bought it, and the signature is Ed25519 over that base64url text (so no
-//! JSON canonicalisation is needed). Only the keygen holds the private key; the
-//! app checks keys offline against the public half in `license_key.pub`.
+//! JSON canonicalisation is needed). Only the keygen holds a private key; the
+//! app checks keys offline against the public halves in `license_key.pub`.
+//!
+//! `license_key.pub` lists every public key the app trusts, one per line, so
+//! keys can be issued from more than one machine and a new signing key never
+//! invalidates the keys already sold. Keys are only ever added to it.
 //!
 //! Keys are long, so they are pasted, not typed. Whitespace anywhere is
 //! ignored, because email clients like to wrap them.
@@ -55,7 +59,25 @@ pub fn open(input: &str, key: &VerifyingKey) -> Option<Payload> {
     (payload.v == 1).then_some(payload)
 }
 
-/// The Ed25519 public key in `license_key.pub` form: base64url, 32 bytes.
+/// The payload of `input` if any of `keys` signed it.
+pub fn open_any(input: &str, keys: &[VerifyingKey]) -> Option<Payload> {
+    keys.iter().find_map(|key| open(input, key))
+}
+
+/// Every key in a `license_key.pub`-style list: one per line, `#` starts a
+/// comment. None if the list is empty or any entry is not a key, so a typo
+/// fails the build rather than quietly dropping a trusted key.
+pub fn parse_public_keys(text: &str) -> Option<Vec<VerifyingKey>> {
+    let keys = text
+        .lines()
+        .map(|line| line.split('#').next().unwrap_or("").trim())
+        .filter(|entry| !entry.is_empty())
+        .map(parse_public_key)
+        .collect::<Option<Vec<_>>>()?;
+    (!keys.is_empty()).then_some(keys)
+}
+
+/// One Ed25519 public key in `license_key.pub` form: base64url, 32 bytes.
 pub fn parse_public_key(text: &str) -> Option<VerifyingKey> {
     let bytes: [u8; 32] = URL_SAFE_NO_PAD.decode(text.trim()).ok()?.try_into().ok()?;
     VerifyingKey::from_bytes(&bytes).ok()
@@ -115,6 +137,30 @@ mod tests {
         let public = signer().verifying_key();
         assert_eq!(parse_public_key(&encode_public_key(&public)), Some(public));
         assert_eq!(parse_public_key("not a key"), None);
+    }
+
+    #[test]
+    fn keys_from_any_trusted_signer_open() {
+        let other = SigningKey::from_bytes(&[9u8; 32]);
+        let list = format!(
+            "# trusted\n{}  # first machine\n\n{}\n",
+            encode_public_key(&signer().verifying_key()),
+            encode_public_key(&other.verifying_key()),
+        );
+        let keys = parse_public_keys(&list).expect("list parses");
+        assert_eq!(keys.len(), 2);
+        assert_eq!(open_any(&sign(&payload(), &signer()), &keys), Some(payload()));
+        assert_eq!(open_any(&sign(&payload(), &other), &keys), Some(payload()));
+        let stranger = SigningKey::from_bytes(&[3u8; 32]);
+        assert_eq!(open_any(&sign(&payload(), &stranger), &keys), None);
+    }
+
+    #[test]
+    fn a_bad_or_empty_key_list_is_refused() {
+        let good = encode_public_key(&signer().verifying_key());
+        assert!(parse_public_keys(&format!("{good}\nnot-a-key\n")).is_none());
+        assert!(parse_public_keys("# only comments\n\n").is_none());
+        assert!(parse_public_keys(&good).is_some());
     }
 
     #[test]
