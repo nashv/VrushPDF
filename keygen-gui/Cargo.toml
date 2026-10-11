@@ -1,0 +1,20 @@
+[package]
+name = "vrushpdf-keygen-gui"
+version = "0.1.0"
+description = "Windowed front end to the VrushPDF keygen: issue, check and revoke license keys"
+edition = "2021"
+publish = false
+
+# A crate of its own so the keygen crate, whose tests CI and the release
+# workflow run, never has to build a GUI toolkit.
+
+[[bin]]
+name = "keygen-gui"
+path = "src/main.rs"
+
+[dependencies]
+vrushpdf-keygen = { path = "../keygen" }
+eframe = "0.36"
+
+[dev-dependencies]
+egui_kittest = "0.36"

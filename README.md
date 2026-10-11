@@ -206,6 +206,8 @@ npm run verify:ui                                 # Automated UI integration tes
 cargo test --manifest-path src-tauri/Cargo.toml   # Native Rust backend unit tests
 cargo test --manifest-path keygen/Cargo.toml      # License keygen cryptographic tests
 npm run keygen:check                              # Diagnostic keypair integrity check
+npm run keygen:gui                                # Keygen window: issue, look up, check, revoke keys
+cargo test --manifest-path keygen-gui/Cargo.toml  # Keygen window interaction tests
 ```
 
 ### Building Release Artifacts
@@ -228,7 +230,8 @@ src/lib/components/    toolbar, sidebar, canvas viewer, overlay, properties insp
                        (OptimizeDialog, MergeDialog, SettingsDialog, SignaturePad)
 src-tauri/src/         native filesystem, window backdrop, SIMD image downsampling (optimize.rs),
                        AES-128 re-encryption (encrypt.rs), offline Ed25519 licensing (license.rs)
-keygen/                offline key generation CLI and cryptographic verification tool
+keygen/                offline key generation library + CLI; issued-keys.json is the ledger
+keygen-gui/            windowed keygen (egui) over the same library
 scripts/               automated verification suites (round-trip, UI smoke tests, fixtures)
 ```
 

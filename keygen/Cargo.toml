@@ -8,6 +8,10 @@ publish = false
 # Its own crate, not a second bin in src-tauri: Tauri bundles every bin of the
 # app's package, and this must not ship inside the app.
 
+[lib]
+name = "vrushpdf_keygen"
+path = "src/lib.rs"
+
 [[bin]]
 name = "keygen"
 path = "src/main.rs"

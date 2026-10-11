@@ -19,7 +19,8 @@
     "screenshots": "tsx scripts/generate-screenshots.ts",
     "release:publish": "tsx scripts/publish-public-release.ts",
     "keygen": "cargo run -q --manifest-path keygen/Cargo.toml --",
-    "keygen:check": "cargo run -q --manifest-path keygen/Cargo.toml -- check"
+    "keygen:check": "cargo run -q --manifest-path keygen/Cargo.toml -- check",
+    "keygen:gui": "cargo run -q --release --manifest-path keygen-gui/Cargo.toml"
   },
   "license": "UNLICENSED",
   "private": true,
