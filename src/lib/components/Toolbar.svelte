@@ -8,7 +8,9 @@
   import type { DocumentTab } from "$lib/state/workspace.svelte";
   import { hasGlass } from "$lib/platform";
   import Icon, { type IconName } from "./Icon.svelte";
+  import ColourWell from "./ColourWell.svelte";
   import NumberInput from "./NumberInput.svelte";
+  import SizeField from "./SizeField.svelte";
   import StampPicker from "./StampPicker.svelte";
   import SignaturePicker from "./SignaturePicker.svelte";
 
@@ -120,6 +122,56 @@
     if (styledKind) viewer.setStyle(styledKind, patch);
   }
 
+  /** True once the style controls have wrapped onto a line of their own. */
+  let styleWrapped = $state(false);
+  let toolsMain: HTMLElement | undefined = $state();
+  let styleBox: HTMLElement | undefined = $state();
+
+  $effect(() => {
+    const main = toolsMain;
+    const box = styleBox;
+    if (!main || !box) {
+      styleWrapped = false;
+      return;
+    }
+    const measure = () => (styleWrapped = box.offsetTop > main.offsetTop + main.offsetHeight / 2);
+    const observer = new ResizeObserver(measure);
+    observer.observe(main);
+    observer.observe(box);
+    observer.observe(main.parentElement!);
+    measure();
+    return () => observer.disconnect();
+  });
+
+  /**
+   * For a strip that may have to scroll: fade whichever edge hides more
+   * buttons, so it is clear there are more, and let a plain mouse wheel
+   * scroll it sideways.
+   */
+  function scrollFade(node: HTMLElement) {
+    const update = () => {
+      const max = node.scrollWidth - node.clientWidth;
+      node.classList.toggle("fade-start", max > 1 && node.scrollLeft > 1);
+      node.classList.toggle("fade-end", max > 1 && node.scrollLeft < max - 1);
+    };
+    const onWheel = (event: WheelEvent) => {
+      if (node.scrollWidth <= node.clientWidth || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+      node.scrollLeft += event.deltaY;
+      event.preventDefault();
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    for (const child of node.children) observer.observe(child);
+    node.addEventListener("scroll", update, { passive: true });
+    node.addEventListener("wheel", onWheel, { passive: false });
+    update();
+    return () => {
+      observer.disconnect();
+      node.removeEventListener("scroll", update);
+      node.removeEventListener("wheel", onWheel);
+    };
+  }
+
   function gotoPage(value: string) {
     const n = Number.parseInt(value, 10);
     if (Number.isNaN(n) || !tab) return;
@@ -132,7 +184,7 @@
   else it is `display: contents` and the dividers between clusters do the job.
 -->
 <header class="toolbar" class:labels={viewer.toolbarLabels} data-tauri-drag-region={drag}>
-  <div class="row" data-tauri-drag-region={drag}>
+  <div class="row" data-tauri-drag-region={drag} {@attach scrollFade}>
     <div class="cluster glass">
       <button
         class="btn square"
@@ -163,6 +215,24 @@
       <button class="btn square" title="Recognise text (OCR)…" disabled={!open} onclick={() => session.openOcrDialog()}>
         <Icon name="ocr" />
         <span class="btn-label">OCR</span>
+      </button>
+      <button class="btn square" title="Straighten scanned pages…" disabled={!open} onclick={() => session.openStraightenDialog()}>
+        <Icon name="straighten" />
+        <span class="btn-label">Straighten</span>
+      </button>
+      <button
+        class="btn square"
+        class:selected={!!session.perspective && session.perspective.tab === tab}
+        title="Correct perspective of the current page…"
+        disabled={!open}
+        onclick={() => {
+          if (!tab) return;
+          if (session.perspective?.tab === tab) session.cancelPerspective();
+          else session.startPerspective(tab);
+        }}
+      >
+        <Icon name="perspective" />
+        <span class="btn-label">Perspective</span>
       </button>
       <button class="btn square" title="Watermark…" disabled={!open} onclick={() => session.openWatermarkDialog()}>
         <Icon name="watermark" />
@@ -372,7 +442,9 @@
   </div>
 
   <div class="row tools" data-tauri-drag-region={drag}>
-    <div class="tool-group" data-tauri-drag-region={drag}>
+    <!-- The tools travel together; the style controls may wrap below them. -->
+    <div class="tools-main" bind:this={toolsMain} data-tauri-drag-region={drag}>
+    <div class="tool-group" data-tauri-drag-region={drag} {@attach scrollFade}>
       {#each groups as group, i (i)}
         {#if i > 0}<div class="divider"></div>{/if}
         <div class="cluster glass">
@@ -461,97 +533,56 @@
       </div>
     {/if}
 
-    <span class="spacer" data-tauri-drag-region={drag}></span>
+    </div>
 
     {#if style && styledKind}
-      <div class="style glass">
-        <span class="swatches" role="group" aria-label="Colour">
-          {#each SWATCHES as colour (colour)}
-            <button
-              type="button"
-              class="swatch"
-              class:on={style.color.toLowerCase() === colour}
-              style:background={colour}
-              title={colour}
-              aria-label="Colour {colour}"
-              onclick={() => setStyle({ color: colour })}
-            ></button>
-          {/each}
-          <input
-            type="color"
-            class="picker"
-            value={style.color}
-            aria-label="Custom colour"
-            title="Custom colour"
-            oninput={(event) => setStyle({ color: event.currentTarget.value })}
-          />
-        </span>
+      <div class="style glass" class:wrapped={styleWrapped} bind:this={styleBox}>
+        <ColourWell value={style.color} swatches={SWATCHES} onchange={(color) => setStyle({ color })} />
 
         {#if showWidth}
-          <label class="slider" title="Stroke width">
-            <Icon name="pen" size={13} />
-            <input
-              type="range"
-              min="0.5"
-              max="12"
-              step="0.5"
-              value={style.width}
-              oninput={(event) => setStyle({ width: Number(event.currentTarget.value) })}
-            />
-            <NumberInput
-              label="Stroke width"
-              value={style.width}
-              min={0.5}
-              max={50}
-              step={0.5}
-              onchange={(width) => setStyle({ width })}
-            />
-          </label>
+          <SizeField
+            label="Stroke width"
+            value={style.width}
+            min={0.5}
+            max={50}
+            step={0.5}
+            sliderMin={0.5}
+            sliderMax={12}
+            onchange={(width) => setStyle({ width })}
+          >
+            {#snippet icon()}<Icon name="pen" size={13} />{/snippet}
+          </SizeField>
         {/if}
 
         {#if showMarkSize}
-          <label class="slider" title="Mark size">
-            <Icon name="square" size={13} />
-            <input
-              type="range"
-              min="6"
-              max="36"
-              step="1"
-              value={style.fontSize}
-              oninput={(event) => setStyle({ fontSize: Number(event.currentTarget.value) })}
-            />
-            <NumberInput
-              label="Mark size"
-              value={style.fontSize}
-              min={2}
-              max={200}
-              unit="pt"
-              onchange={(fontSize) => setStyle({ fontSize })}
-            />
-          </label>
+          <SizeField
+            label="Mark size"
+            value={style.fontSize}
+            min={2}
+            max={200}
+            sliderMin={6}
+            sliderMax={36}
+            unit="pt"
+            onchange={(fontSize) => setStyle({ fontSize })}
+          >
+            {#snippet icon()}<Icon name="check" size={13} />{/snippet}
+          </SizeField>
         {/if}
 
         {#if showFontSize}
-          <label class="slider" title="Font size">
-            <Icon name="text" size={13} />
-            <input
-              type="range"
-              min="6"
-              max="48"
-              step="1"
-              value={style.fontSize}
-              oninput={(event) => setStyle({ fontSize: Number(event.currentTarget.value) })}
-            />
-            <NumberInput
-              label="Font size"
-              value={style.fontSize}
-              min={1}
-              max={200}
-              step={0.5}
-              unit="pt"
-              onchange={(fontSize) => setStyle({ fontSize })}
-            />
-          </label>
+          <SizeField
+            label="Font size"
+            value={style.fontSize}
+            min={1}
+            max={200}
+            step={0.5}
+            sliderMin={6}
+            sliderMax={48}
+            unit="pt"
+            onchange={(fontSize) => setStyle({ fontSize })}
+          >
+            {#snippet icon()}<Icon name="text" size={13} />{/snippet}
+          </SizeField>
         {/if}
 
         {#if styledKind === "freetext"}
@@ -599,7 +630,7 @@
               aria-label="Align left"
               onclick={() => setStyle({ align: "left" })}
             >
-              L
+              <Icon name="align-left" size={14} />
             </button>
             <button
               type="button"
@@ -609,7 +640,7 @@
               aria-label="Align center"
               onclick={() => setStyle({ align: "center" })}
             >
-              C
+              <Icon name="align-center" size={14} />
             </button>
             <button
               type="button"
@@ -619,31 +650,24 @@
               aria-label="Align right"
               onclick={() => setStyle({ align: "right" })}
             >
-              R
+              <Icon name="align-right" size={14} />
             </button>
           </span>
         {/if}
 
-        <label class="slider" title="Opacity">
-          <span class="opacity-icon" aria-hidden="true"></span>
-          <input
-            type="range"
-            min="0.1"
-            max="1"
-            step="0.05"
-            value={style.opacity}
-            oninput={(event) => setStyle({ opacity: Number(event.currentTarget.value) })}
-          />
-          <NumberInput
-            label="Opacity"
-            value={style.opacity}
-            factor={100}
-            min={10}
-            max={100}
-            unit="%"
-            onchange={(opacity) => setStyle({ opacity })}
-          />
-        </label>
+        <SizeField
+          label="Opacity"
+          value={style.opacity}
+          factor={100}
+          min={10}
+          max={100}
+          sliderMin={0.1}
+          sliderMax={1}
+          unit="%"
+          onchange={(opacity) => setStyle({ opacity })}
+        >
+          {#snippet icon()}<span class="opacity-icon" aria-hidden="true"></span>{/snippet}
+        </SizeField>
 
         {#if showFill}
           <label class="fill" title={styledKind === "freetext" ? "Whiteout / Background" : "Fill colour"}>
@@ -696,11 +720,46 @@
     display: none;
   }
 
+  /*
+   * The tools and the style controls share a line when there's room. When
+   * there isn't, the style controls wrap onto a line of their own rather than
+   * squeezing the tools out of sight.
+   */
   .row.tools {
-    height: 40px;
+    flex-wrap: wrap;
+    row-gap: 4px;
+    height: auto;
+    min-height: 40px;
+    padding-top: 4px;
+    padding-bottom: 4px;
     border-top: 1px solid var(--border);
-    /* Must stay visible: the tool row hosts the stamp dropdown. */
+    /* Must stay visible: the tool row hosts the stamp dropdown and palettes. */
     overflow: visible;
+  }
+
+  .tools-main {
+    display: flex;
+    align-items: center;
+    flex: 0 1 auto;
+    gap: 2px;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  /* A strip with buttons out of view fades at that edge, so they're findable. */
+  .row:global(.fade-end),
+  .tool-group:global(.fade-end) {
+    mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+  }
+
+  .row:global(.fade-start),
+  .tool-group:global(.fade-start) {
+    mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent);
+  }
+
+  .row:global(.fade-start.fade-end),
+  .tool-group:global(.fade-start.fade-end) {
+    mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
   }
 
   /*
@@ -723,6 +782,56 @@
 
   .toolbar.labels .row.tools {
     min-height: 40px;
+  }
+
+  /*
+   * With labels the top row is wider than many windows. Wrap it at group
+   * boundaries instead of hiding the end of it; each group stays together.
+   */
+  .toolbar.labels .row:not(.tools) {
+    flex-wrap: wrap;
+    row-gap: 4px;
+    overflow: visible;
+  }
+
+  .toolbar.labels .row:not(.tools) .cluster,
+  .toolbar.labels .tool-group .cluster {
+    display: flex;
+    align-items: center;
+    flex: none;
+    gap: 2px;
+  }
+
+  /*
+   * The tools wrap by group too, Stamp and Signature included, so in label
+   * mode no tool is ever out of sight: the scrolling strip dissolves and its
+   * groups flow with the rest.
+   */
+  .toolbar.labels .tool-group {
+    display: contents;
+  }
+
+  .toolbar.labels .tools-main {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  /*
+   * Groups are separated by space rather than divider lines, which would be
+   * left dangling at the end of a wrapped line (as the glass style does).
+   */
+  .toolbar.labels .row,
+  .toolbar.labels .tools-main {
+    column-gap: 12px;
+  }
+
+  .toolbar.labels .divider {
+    display: none;
+  }
+
+  /* A selected button's label takes the button's own text colour. */
+  .toolbar.labels :global(.btn.selected .btn-label) {
+    color: inherit;
   }
 
   .toolbar.labels :global(.btn) {
@@ -760,6 +869,7 @@
   .tool-group {
     display: flex;
     align-items: center;
+    flex: 0 1 auto;
     gap: 2px;
     min-width: 0;
     overflow-x: auto;
@@ -845,7 +955,9 @@
   .pages {
     display: flex;
     align-items: center;
+    flex: none;
     gap: 5px;
+    white-space: nowrap;
   }
 
   .page-input {
@@ -865,26 +977,17 @@
     display: flex;
     align-items: center;
     flex: none;
-    gap: 12px;
+    gap: 10px;
+    margin-left: auto;
     padding-left: 12px;
     border-left: 1px solid var(--border);
   }
 
-  .swatches {
-    display: flex;
-    align-items: center;
-    gap: 3px;
-  }
-
-  .swatch {
-    width: 18px;
-    height: 18px;
-    border: 1px solid rgb(0 0 0 / 22%);
-    border-radius: 4px;
-  }
-
-  .swatch.on {
-    box-shadow: 0 0 0 2px var(--accent);
+  /* On a line of its own it lines up under the tools instead. */
+  .style.wrapped {
+    margin-left: 0;
+    padding-left: 2px;
+    border-left: none;
   }
 
   .picker {
@@ -895,18 +998,6 @@
     border-radius: 4px;
     background: none;
     cursor: pointer;
-  }
-
-  .slider {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    color: var(--text-muted);
-  }
-
-  .slider input[type="range"] {
-    width: 72px;
-    accent-color: var(--accent);
   }
 
   /* A half-filled square reads as "opacity" without needing a label. */
@@ -1043,9 +1134,10 @@
     border-radius: 999px;
   }
 
-  :global([data-glass]) .swatch {
-    border-radius: 50%;
+  :global([data-glass]) .style.wrapped {
+    padding: 0 14px;
   }
+
 
   :global([data-glass]) .picker {
     border-radius: 50%;
@@ -1080,9 +1172,6 @@
     border-bottom-color: var(--accent);
   }
 
-  :global([data-platform="win"]) .swatch {
-    border-radius: 3px;
-  }
 
   :global([data-platform="win"]) .picker {
     border-radius: 3px;
@@ -1105,6 +1194,11 @@
     height: 26px;
   }
 
+  :global([data-platform="gnome"]) .toolbar.labels .cluster :global(.btn),
+  :global([data-platform="linux"]) .toolbar.labels .cluster :global(.btn) {
+    height: auto;
+  }
+
   :global([data-platform="gnome"]) .cluster :global(.btn.selected),
   :global([data-platform="linux"]) .cluster :global(.btn.selected) {
     background: var(--bg-raised);
@@ -1120,11 +1214,6 @@
   :global([data-platform="gnome"]) .page-input,
   :global([data-platform="linux"]) .page-input {
     border-radius: 6px;
-  }
-
-  :global([data-platform="gnome"]) .swatch,
-  :global([data-platform="linux"]) .swatch {
-    border-radius: 4px;
   }
 
   :global([data-platform="gnome"]) .picker,
@@ -1151,9 +1240,6 @@
     box-shadow: 0 0 0 1px var(--accent);
   }
 
-  :global([data-platform="kde"]) .swatch {
-    border-radius: 3px;
-  }
 
   :global([data-platform="kde"]) .picker {
     border-radius: 3px;

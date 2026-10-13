@@ -564,7 +564,9 @@ async function main() {
     await click(pt(344, 292));
     await typeIntoTextBox("11 October 2026");
     await tool("Freehand pen");
-    await cdp.eval("document.querySelector('.toolbar .swatch[title=\"#2563eb\"]')?.click()");
+    await cdp.eval("document.querySelector('.toolbar .colour-well')?.click()");
+    await sleep(150);
+    await cdp.eval("document.querySelector('.toolbar .palette .swatch[title=\"#2563eb\"]')?.click()");
     await scribble(pt(80, 282), page.w * 0.05);
     await tool("Stamps");
     await cdp.eval("document.querySelector('[title=\"Place APPROVED\"]')?.click()");

@@ -862,7 +862,7 @@ async function main() {
     });
     await sleep(400);
     const narrow = await cdp.eval<{ right: number; width: number; visible: boolean }>(`(() => {
-      const slider = document.querySelector('.style input[type="range"]');
+      const slider = document.querySelector('.style input[aria-label="Opacity"]');
       if (!slider) return { right: 0, width: window.innerWidth, visible: false };
       const r = slider.getBoundingClientRect();
       return { right: r.right, width: window.innerWidth, visible: r.width > 0 };
@@ -1745,7 +1745,43 @@ async function main() {
         `height stayed at ${withLabels.height}`,
       ),
     );
+    // With labels at a narrow width nothing may be cut off: rows wrap by
+    // group instead of hiding buttons past the edge.
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1100, height: 900, deviceScaleFactor: 1, mobile: false });
+    await sleep(400);
+    const clipped = await cdp.eval<string[]>(`(() => {
+      const out = [];
+      for (const btn of document.querySelectorAll('.toolbar .btn')) {
+        if (btn.closest('.popover, .palette, .slider-pop')) continue;
+        const r = btn.getBoundingClientRect();
+        if (r.width === 0) continue;
+        if (r.left < -1 || r.right > innerWidth + 1) out.push((btn.title || btn.textContent.trim()) + " @ " + Math.round(r.left) + "-" + Math.round(r.right));
+      }
+      return out;
+    })()`);
+    check("with labels on a narrow window, every toolbar button is fully on screen", () =>
+      assert.deepEqual(clipped, []),
+    );
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 960, deviceScaleFactor: 1, mobile: false });
+    await sleep(300);
     await cdp.eval("document.querySelector('.toolbar').classList.remove('labels')");
+
+    // The colour button opens the palette; the size icons open their sliders.
+    await cdp.eval(`document.querySelector('.tools button[title^="Rectangle"]')?.click()`);
+    await sleep(150);
+    await cdp.eval("document.querySelector('.style .colour-well').click()");
+    await sleep(150);
+    await cdp.eval("document.querySelector('.style .palette .swatch[title=\"#16a34a\"]').click()");
+    await sleep(150);
+    const wellLabel = await cdp.eval<string>("document.querySelector('.style .colour-well').getAttribute('aria-label')");
+    check("picking from the colour palette sets the tool's colour", () => assert.match(wellLabel, /#16a34a/));
+    await cdp.eval("document.querySelector('.style .size-icon').click()");
+    await sleep(150);
+    const sliderShown = await cdp.eval<boolean>("!!document.querySelector('.style .slider-pop input[type=\"range\"]')");
+    check("a size field's icon opens its slider", () => assert.ok(sliderShown));
+    await cdp.eval("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
+    await cdp.eval(`document.querySelector('.tools button[title^="Select ("]')?.click()`);
+    await sleep(150);
 
     // The menu item that drives it cannot be clicked here — the menu is native —
     // so assert it was at least built.
@@ -2159,6 +2195,25 @@ async function main() {
     );
 
     // Perspective: the sheet's corners are found on the photo and applied.
+    // Both are on the toolbar too, not only in the page's context menu.
+    await cdp.eval("document.querySelector('.toolbar [title=\"Straighten scanned pages…\"]').click()");
+    await sleep(200);
+    const straightenDialog = await cdp.eval<boolean>("!!document.querySelector('#straighten-range')");
+    check("the toolbar's Straighten button opens the straighten dialog", () => assert.ok(straightenDialog));
+    await cdp.eval("[...document.querySelectorAll('.dialog .btn')].find((b) => b.textContent.trim() === 'Cancel')?.click()");
+    await sleep(150);
+    const perspectiveButton = "document.querySelector('.toolbar [title=\"Correct perspective of the current page…\"]')";
+    await cdp.eval(`${perspectiveButton}.click()`);
+    await sleep(300);
+    const handlesOn = await cdp.eval<number>("document.querySelectorAll('.perspective .corner').length");
+    await cdp.eval(`${perspectiveButton}.click()`);
+    await sleep(200);
+    const handlesOff = await cdp.eval<number>("document.querySelectorAll('.perspective .corner').length");
+    check("the toolbar's Perspective button shows the corner handles, and hides them again", () => {
+      assert.equal(handlesOn, 4);
+      assert.equal(handlesOff, 0);
+    });
+
     await contextMenuOn(1, "Correct Perspective");
     const hint = await waitFor(
       "corner detection",
