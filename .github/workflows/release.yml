@@ -1,5 +1,5 @@
-# Builds the installers for every platform and, on a version tag, attaches them
-# to a draft GitHub Release in the public VrushPDF repository.
+# Builds the installers for every platform and, on a version tag, publishes
+# them as a GitHub Release in the public VrushPDF repository.
 #
 # Tauri cannot cross-compile, so each installer has to be produced on its own
 # operating system — that is the whole reason this runs in CI rather than on a
@@ -8,8 +8,9 @@
 # Note this repository is private, so Actions minutes are billed: macOS runners
 # at 10x and Windows at 2x. Use the manual `workflow_dispatch` trigger while
 # iterating on the pipeline and keep tags for real releases.
-# The release job publishes to the public repository (e.g. nashv/VrushPDF) using
-# secrets.PUBLIC_REPO_TOKEN or secrets.RELEASE_TOKEN.
+# The release job publishes to nashv/VrushPDF with secrets.PUBLIC_REPO_TOKEN, a
+# fine-grained token with Contents: write on that repository only. The job's own
+# GITHUB_TOKEN cannot write to another repository.
 name: release
 
 on:
@@ -136,9 +137,9 @@ jobs:
           cargo test --manifest-path keygen/Cargo.toml
 
       # Builds only. Deliberately no release inputs: with four jobs in
-      # parallel each would try to create the release, and a *draft* cannot be
-      # looked up by tag, so several drafts appear and the assets scatter
-      # between them. The `release` job below publishes instead.
+      # parallel each would try to create the release, and tauri-action cannot
+      # find a *draft* by its tag, so several drafts appear and the assets
+      # scatter between them. The `release` job below publishes instead.
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -191,57 +192,87 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Create or update release
+      # Publish the way it was done by hand: everything goes into a *draft*
+      # first, and only once every installer is there at its full size does the
+      # release go public. A single `gh release create` with the files made the
+      # release public before its uploads finished, so a dropped connection
+      # left a public release without some of its installers (1.0.1).
+      #
+      # A failure here fails the job. It used to fall back to a private draft
+      # and stay green, so for months a green run meant nothing had been
+      # published. The fallback draft is still made, so the installers can be
+      # published from it by hand.
+      - name: Publish release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PUBLIC_REPO_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
           RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
+          set -uo pipefail
           ls -R dist
-          cd dist
-          sha256sum * > SHA256SUMS.txt 2>/dev/null || shasum -a 256 * > SHA256SUMS.txt
-          cd ..
+          (cd dist && sha256sum * > SHA256SUMS.txt)
           FILES=$(find dist -maxdepth 1 -type f | sort)
+          TAG="${GITHUB_REF_NAME}"
           TARGET_REPO="nashv/VrushPDF"
-          AUTH_TOKEN="${PUBLIC_REPO_TOKEN:-${RELEASE_TOKEN:-$GITHUB_TOKEN}}"
-          export GH_TOKEN="$AUTH_TOKEN"
+          NOTES='Download the installer for your platform below. These builds are unsigned — see the README for how to get past Gatekeeper and SmartScreen.'
+          export GH_TOKEN="${PUBLIC_REPO_TOKEN:-${RELEASE_TOKEN:-$GITHUB_TOKEN}}"
 
-          echo "Target repository: $TARGET_REPO"
-          echo "Tag: ${GITHUB_REF_NAME}"
+          # Upload each file with retries; a release asset upload is one long
+          # request, and one dropped connection should not lose the release.
+          upload_all() {
+            local repo="$1" f i
+            for f in $FILES; do
+              for i in 1 2 3 4 5; do
+                gh release upload "$TAG" "$f" --repo "$repo" --clobber && continue 2
+                echo "Upload of $(basename "$f") failed (attempt $i), retrying..."
+                sleep 15
+              done
+              echo "::error::Could not upload $(basename "$f") to $repo"
+              return 1
+            done
+          }
 
-          PUBLISHED=0
-          if gh release view "${GITHUB_REF_NAME}" --repo "$TARGET_REPO" >/dev/null 2>&1; then
-            echo "Release ${GITHUB_REF_NAME} already exists in ${TARGET_REPO}. Uploading and updating assets..."
-            if gh release upload "${GITHUB_REF_NAME}" --repo "$TARGET_REPO" --clobber $FILES; then
-              PUBLISHED=1
-              echo "Successfully updated release assets in $TARGET_REPO"
-            else
-              echo "Warning: Failed to upload assets to $TARGET_REPO"
+          publish_public() {
+            local was_public=0
+            if gh release view "$TAG" --repo "$TARGET_REPO" --json isDraft --jq .isDraft 2>/dev/null | grep -q false; then
+              # A re-run of a tag that is already out: refresh its files only.
+              was_public=1
+            elif ! gh release view "$TAG" --repo "$TARGET_REPO" >/dev/null 2>&1; then
+              gh release create "$TAG" --repo "$TARGET_REPO" --draft \
+                --title "VrushPDF $TAG" --notes "$NOTES" || return 1
             fi
-          else
-            echo "Creating release ${GITHUB_REF_NAME} in ${TARGET_REPO}..."
-            if gh release create "${GITHUB_REF_NAME}" \
-              --repo "$TARGET_REPO" \
-              --title "VrushPDF ${GITHUB_REF_NAME}" \
-              --notes 'Download the installer for your platform below. These builds are unsigned — see the README for how to get past Gatekeeper and SmartScreen.' \
-              $FILES; then
-              PUBLISHED=1
-              echo "Successfully published release ${GITHUB_REF_NAME} to $TARGET_REPO"
-            else
-              echo "Warning: Failed to create release in $TARGET_REPO (check PUBLIC_REPO_TOKEN permissions)"
+
+            upload_all "$TARGET_REPO" || return 1
+
+            # Every installer must be there at the size it was built at, and
+            # nothing else: leftovers from an earlier attempt would be offered
+            # for download too.
+            local expected actual
+            expected=$(for f in $FILES; do echo "$(basename "$f") $(stat -c %s "$f")"; done | sort)
+            actual=$(gh release view "$TAG" --repo "$TARGET_REPO" --json assets \
+              --jq '.assets[] | "\(.name) \(.size)"' | sort) || return 1
+            if [ "$expected" != "$actual" ]; then
+              echo "::error::The assets in $TARGET_REPO do not match the build"
+              diff <(echo "$expected") <(echo "$actual")
+              return 1
             fi
+            echo "All $(echo "$expected" | wc -l) assets verified in $TARGET_REPO"
+
+            if [ "$was_public" -eq 0 ]; then
+              gh release edit "$TAG" --repo "$TARGET_REPO" --draft=false --latest || return 1
+            fi
+            echo "Published: https://github.com/$TARGET_REPO/releases/tag/$TAG"
+          }
+
+          if publish_public; then
+            exit 0
           fi
 
-          if [ "$PUBLISHED" -eq 0 ]; then
-            echo "::warning title=Public Release Publish Failed::Could not publish directly to $TARGET_REPO. Falling back to local repository ${GITHUB_REPOSITORY}."
-            if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-              gh release upload "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --clobber $FILES
-            else
-              gh release create "${GITHUB_REF_NAME}" \
-                --repo "${GITHUB_REPOSITORY}" \
-                --draft \
-                --title "VrushPDF ${GITHUB_REF_NAME}" \
-                --notes 'Download the installer for your platform below. These builds are unsigned — see the README for how to get past Gatekeeper and SmartScreen.' \
-                $FILES
-            fi
+          echo "::error title=Public release not published::Could not publish $TAG to $TARGET_REPO; see the errors above (a 403 means PUBLIC_REPO_TOKEN is missing, expired or lacks Contents: write). The installers are in a draft release in ${GITHUB_REPOSITORY} to publish by hand."
+          export GH_TOKEN="$GITHUB_TOKEN"
+          if ! gh release view "$TAG" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "${GITHUB_REPOSITORY}" --draft \
+              --title "VrushPDF $TAG" --notes "$NOTES"
           fi
+          upload_all "${GITHUB_REPOSITORY}"
+          exit 1
