@@ -9,6 +9,7 @@
   import { hasGlass } from "$lib/platform";
   import Icon, { type IconName } from "./Icon.svelte";
   import ColourWell from "./ColourWell.svelte";
+  import MenuButton from "./MenuButton.svelte";
   import NumberInput from "./NumberInput.svelte";
   import SizeField from "./SizeField.svelte";
   import StampPicker from "./StampPicker.svelte";
@@ -376,34 +377,34 @@
     <div class="divider"></div>
 
     <div class="cluster glass">
-      <button
-        class="btn square"
-        class:selected={viewer.pageLayout !== "single"}
-        title="Page layout: {viewer.pageLayout}"
-        onclick={() => {
-          if (viewer.pageLayout === "single") viewer.pageLayout = "two-page";
-          else if (viewer.pageLayout === "two-page") viewer.pageLayout = "two-page-cover";
-          else viewer.pageLayout = "single";
-        }}
-      >
-        <Icon name="two-page" />
-        <span class="btn-label">Layout</span>
-      </button>
+      <MenuButton
+        icon="two-page"
+        label="Layout"
+        title="Page layout"
+        value={viewer.pageLayout}
+        highlighted={viewer.pageLayout !== "single"}
+        options={[
+          { value: "single", label: "Single page" },
+          { value: "two-page", label: "Two pages side by side" },
+          { value: "two-page-cover", label: "Two pages, cover on its own" },
+        ]}
+        onselect={(layout) => (viewer.pageLayout = layout)}
+      />
 
-      <button
-        class="btn square"
-        class:selected={viewer.readingMode !== "default"}
-        title="Reading filter: {viewer.readingMode}"
-        onclick={() => {
-          if (viewer.readingMode === "default") viewer.readingMode = "dark";
-          else if (viewer.readingMode === "dark") viewer.readingMode = "sepia";
-          else if (viewer.readingMode === "sepia") viewer.readingMode = "invert";
-          else viewer.readingMode = "default";
-        }}
-      >
-        <Icon name="reading-mode" />
-        <span class="btn-label">Reading</span>
-      </button>
+      <MenuButton
+        icon="reading-mode"
+        label="Reading"
+        title="Reading colours"
+        value={viewer.readingMode}
+        highlighted={viewer.readingMode !== "default"}
+        options={[
+          { value: "default", label: "Normal" },
+          { value: "dark", label: "Dark" },
+          { value: "sepia", label: "Sepia" },
+          { value: "invert", label: "Inverted" },
+        ]}
+        onselect={(mode) => (viewer.readingMode = mode)}
+      />
 
       <button
         class="btn square"
@@ -766,7 +767,7 @@
    * Icon-and-text mode, as in a native macOS toolbar: the label goes under the
    * icon, buttons size to their text, and the rows grow to fit.
    */
-  .btn-label {
+  .toolbar :global(.btn-label) {
     display: none;
     font-size: 10px;
     line-height: 1;
@@ -847,7 +848,7 @@
     padding: 4px 7px;
   }
 
-  .toolbar.labels .btn-label {
+  .toolbar.labels :global(.btn-label) {
     display: block;
   }
 
@@ -1086,8 +1087,11 @@
     padding-left: 10px;
   }
 
+  /* A minimum, not a height: the row grows when the style controls or labelled
+     tools wrap, and a fixed height let them spill over the tab bar below. */
   :global([data-glass]) .row.tools {
-    height: 44px;
+    height: auto;
+    min-height: 44px;
     border-top: none;
   }
 

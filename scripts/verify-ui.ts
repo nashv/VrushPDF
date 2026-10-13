@@ -1762,6 +1762,33 @@ async function main() {
     check("with labels on a narrow window, every toolbar button is fully on screen", () =>
       assert.deepEqual(clipped, []),
     );
+    // Wrapped rows must push the tab bar down, not spill over it, in every
+    // platform style, glass included (where a fixed row height once did).
+    await cdp.eval(`document.querySelector('.tools button[title^="Text box"]')?.click()`);
+    await sleep(150);
+    const overlaps: string[] = [];
+    for (const [platform, glass] of [["mac", true], ["mac", false], ["win", false], ["gnome", false], ["kde", false]] as const) {
+      const found = await cdp.eval<string[]>(`(async () => {
+        const root = document.documentElement;
+        const before = { platform: root.dataset.platform, glass: root.hasAttribute('data-glass') };
+        root.dataset.platform = ${JSON.stringify(platform)};
+        root.toggleAttribute('data-glass', ${glass});
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const tabTop = document.querySelector('.tabbar').getBoundingClientRect().top;
+        const out = [...document.querySelectorAll('.toolbar .btn, .toolbar .style')]
+          .filter((el) => !el.closest('.palette, .slider-pop') && el.getBoundingClientRect().height > 0)
+          .filter((el) => el.getBoundingClientRect().bottom > tabTop + 1)
+          .map((el) => (el.title || el.className.split(' ')[0]) + " bottom " + Math.round(el.getBoundingClientRect().bottom) + " > tab bar " + Math.round(tabTop));
+        root.dataset.platform = before.platform;
+        root.toggleAttribute('data-glass', before.glass);
+        return out;
+      })()`);
+      overlaps.push(...found.map((f) => `${platform}${glass ? "+glass" : ""}: ${f}`));
+    }
+    check("with labels, the toolbar never overlaps the tab bar, on any platform style", () =>
+      assert.deepEqual(overlaps, []),
+    );
+    await cdp.eval(`document.querySelector('.tools button[title^="Select ("]')?.click()`);
     await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 960, deviceScaleFactor: 1, mobile: false });
     await sleep(300);
     await cdp.eval("document.querySelector('.toolbar').classList.remove('labels')");
@@ -2324,6 +2351,87 @@ async function main() {
       assert.ok(redacted.includes(selection!.keep2.trim()), `the unselected end of the last line was lost:\n${redacted}`);
     });
     await cdp.eval(`document.querySelector('.tools button[title^="Select ("]').click()`);
+
+    // ------------------------------------------------------------ view menus
+    console.log("\nview menus");
+
+    const openMenu = async (titlePrefix: string) => {
+      await cdp.eval(`document.querySelector('.toolbar button[title^=${JSON.stringify(titlePrefix)}]').click()`);
+      await sleep(200);
+      return cdp.eval<{ items: string[]; checked: string | null; onScreen: boolean; topmost: boolean } | null>(`(() => {
+        const menu = document.querySelector('body > .menu[role="menu"]');
+        if (!menu) return null;
+        const r = menu.getBoundingClientRect();
+        const items = [...menu.querySelectorAll('[role="menuitemradio"]')];
+        const first = items[0].getBoundingClientRect();
+        return {
+          items: items.map((i) => i.textContent.trim()),
+          checked: items.find((i) => i.getAttribute('aria-checked') === 'true')?.textContent.trim() ?? null,
+          onScreen: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight,
+          topmost: items[0].contains(document.elementFromPoint(first.left + first.width / 2, first.top + first.height / 2)),
+        };
+      })()`);
+    };
+    const pick = (label: string) =>
+      cdp.eval(`[...document.querySelectorAll('body > .menu [role="menuitemradio"]')].find((i) => i.textContent.trim() === ${JSON.stringify(label)}).click()`).then(() => sleep(250));
+    const canvasFilter = () => cdp.eval<string>("getComputedStyle(document.querySelector('.page[data-page-index=\"0\"] .canvas')).filter");
+
+    const readingMenu = await openMenu("Reading colours");
+    check("Reading opens a menu of colour modes, on screen, with the current one ticked", () => {
+      assert.deepEqual(readingMenu?.items, ["Normal", "Dark", "Sepia", "Inverted"]);
+      assert.equal(readingMenu?.checked, "Normal");
+      assert.ok(readingMenu?.onScreen && readingMenu.topmost, "menu clipped or covered");
+    });
+    const filters: Record<string, string> = {};
+    for (const mode of ["Dark", "Sepia", "Inverted"]) {
+      if (mode !== "Dark") await openMenu("Reading colours");
+      await pick(mode);
+      filters[mode] = await canvasFilter();
+    }
+    const readingTicked = (await openMenu("Reading colours"))?.checked;
+    const readingHighlighted = await cdp.eval<boolean>("document.querySelector('.toolbar button[title^=\"Reading colours\"]').classList.contains('selected')");
+    await pick("Normal");
+    const normalFilter = await canvasFilter();
+    check("each reading mode really recolours the page, and Normal clears it", () => {
+      assert.match(filters.Dark, /invert/, `dark: ${filters.Dark}`);
+      assert.match(filters.Sepia, /sepia/, `sepia: ${filters.Sepia}`);
+      assert.match(filters.Inverted, /invert\(1\)/, `inverted: ${filters.Inverted}`);
+      assert.equal(normalFilter, "none");
+    });
+    check("the menu ticks the mode in use and the button shows it's on", () => {
+      assert.equal(readingTicked, "Inverted");
+      assert.ok(readingHighlighted);
+    });
+
+    const pagePlaces = () => cdp.eval<{ top: number; left: number; right: number }[]>(`[0, 1].map((i) => {
+      const r = document.querySelector('.page[data-page-index="' + i + '"]').getBoundingClientRect();
+      return { top: Math.round(r.top), left: Math.round(r.left), right: Math.round(r.right) };
+    })`);
+    const layoutMenu = await openMenu("Page layout");
+    await pick("Two pages side by side");
+    const spread = await pagePlaces();
+    await openMenu("Page layout");
+    await pick("Two pages, cover on its own");
+    const cover = await pagePlaces();
+    await openMenu("Page layout");
+    await pick("Single page");
+    const single = await pagePlaces();
+    check("Layout offers single, two-page and cover layouts", () =>
+      assert.deepEqual(layoutMenu?.items, ["Single page", "Two pages side by side", "Two pages, cover on its own"]),
+    );
+    check("two pages side by side puts pages 1 and 2 next to each other", () => {
+      assert.equal(spread[0].top, spread[1].top);
+      assert.ok(spread[1].left >= spread[0].right, JSON.stringify(spread));
+    });
+    check("with the cover on its own, page 1 sits alone above page 2", () =>
+      assert.ok(cover[1].top > cover[0].top, JSON.stringify(cover)),
+    );
+    check("single page stacks the pages again", () => assert.ok(single[1].top > single[0].top));
+
+    const strayLabels = await cdp.eval<number>(
+      "[...document.querySelectorAll('.toolbar .btn-label')].filter((l) => getComputedStyle(l).display !== 'none').length",
+    );
+    check("with labels off, no button label shows anywhere in the toolbar", () => assert.equal(strayLabels, 0));
 
     console.log("\nforms");
 

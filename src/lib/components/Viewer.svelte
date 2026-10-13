@@ -311,15 +311,36 @@
     background: var(--bg-sunken);
   }
 
-  /* Reading mode filters */
-  :global(.viewer.reading-dark .page-view) {
+  /*
+   * Reading colours: a view-only filter on the rendered page (the canvas), so
+   * the document is unchanged and annotations keep their real colours. These
+   * once targeted a `.page-view` element that doesn't exist, so the Reading
+   * button did nothing at all.
+   */
+  :global(.viewer.reading-dark .page .canvas) {
     filter: invert(0.88) hue-rotate(180deg) contrast(1.1);
   }
-  :global(.viewer.reading-sepia .page-view) {
+  :global(.viewer.reading-sepia .page .canvas) {
     filter: sepia(0.35) contrast(0.95) brightness(0.95);
   }
-  :global(.viewer.reading-invert .page-view) {
+  :global(.viewer.reading-invert .page .canvas) {
     filter: invert(1);
+  }
+
+  /* The page's white surround follows the filter, so it doesn't glare. */
+  :global(.viewer.reading-dark .page),
+  :global(.viewer.reading-invert .page) {
+    background: #1f1f1f;
+  }
+  :global(.viewer.reading-sepia .page) {
+    background: #f1e7d2;
+  }
+
+  /* Highlights darken what's under them, which vanishes on a dark page;
+     lighten instead there, so they stay visible. */
+  :global(.viewer.reading-dark .highlight-layer),
+  :global(.viewer.reading-invert .highlight-layer) {
+    mix-blend-mode: screen;
   }
 
   /* Presentation full screen mode */
