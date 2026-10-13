@@ -1306,6 +1306,221 @@ async function main() {
     assert.ok(ops.fnArray.includes(pdfjs.OPS.constructPath), "Baked vector block should be present");
   });
 
+  console.log("\nRedaction precision…");
+  {
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    /** A page with Helvetica as /F1 and `content` as its content stream. */
+    const rawPage = async (content: string, extra?: (doc: PDFDocument, resources: Record<string, unknown>) => void) => {
+      const doc = await PDFDocument.create();
+      const page = doc.addPage([612, 792]);
+      const font = doc.embedStandardFont(StandardFonts.Helvetica);
+      const resources: Record<string, unknown> = { Font: { F1: font.ref } };
+      extra?.(doc, resources);
+      page.node.set(PDFName.of("Resources"), doc.context.obj(resources as never));
+      page.node.set(PDFName.of("Contents"), doc.context.register(doc.context.flateStream(content)));
+      return { bytes: await doc.save({ useObjectStreams: false }), font };
+    };
+    const items = async (bytes: Uint8Array) => {
+      const loaded = await (await pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 }).promise).getPage(1);
+      const content = await loaded.getTextContent();
+      return content.items
+        .filter((i): i is (typeof content.items)[number] & { str: string; transform: number[] } => "str" in i && i.str.trim() !== "")
+        .map((i) => ({ str: i.str, x: i.transform[4], y: i.transform[5] }));
+    };
+    const textOf = async (bytes: Uint8Array) => (await items(bytes)).map((i) => i.str).join(" | ");
+    const redact = (bytes: Uint8Array, rects: { x: number; y: number; w: number; h: number }[], editImage?: Parameters<typeof applyRedactionsToDocument>[0]["editImage"]) =>
+      applyRedactionsToDocument({ docBytes: bytes, pageRedactions: [{ pageIndex: 0, targets: rects.map((rect) => ({ rect, fillColor: "#000000" })) }], editImage });
+    const helvetica = (await PDFDocument.create()).embedStandardFont(StandardFonts.Helvetica);
+    const widthOf = (text: string, size: number) => helvetica.widthOfTextAtSize(text, size);
+
+    // Three lines, 11.5 pt Helvetica, baselines 640 / 620 / 600.
+    const lines = await rawPage(
+      "BT /F1 11.5 Tf 64 640 Td (Line one stays.) Tj 0 -20 Td (SECRET account 987-654-3210 here.) Tj 0 -20 Td (Line three stays.) Tj ET",
+    );
+    for (const [label, rect] of [
+      ["a thin box across the middle of the line", { x: 60, y: 621, w: 300, h: 4 }],
+      ["a box exactly over the line", { x: 60, y: 617, w: 300, h: 11 }],
+      ["a generous box reaching toward the next lines", { x: 60, y: 612, w: 300, h: 17 }],
+    ] as const) {
+      const out = await redact(lines.bytes, [rect]);
+      const text = await textOf(out.bytes);
+      check(`${label} removes the line and only that line`, () => {
+        assert.ok(!text.includes("SECRET") && !text.includes("987"), `still there: ${text}`);
+        assert.ok(text.includes("Line one stays.") && text.includes("Line three stays."), `lost a neighbour: ${text}`);
+      });
+    }
+
+    const before = await items(lines.bytes);
+    const numberX = 64 + widthOf("SECRET account ", 11.5);
+    const numberW = widthOf("987-654-3210", 11.5);
+    const partial = await redact(lines.bytes, [{ x: numberX - 0.5, y: 617, w: numberW + 1, h: 11 }]);
+    const partialText = await textOf(partial.bytes);
+    const after = await items(partial.bytes);
+    check("a box over one word removes just that word", () => {
+      assert.ok(!partialText.includes("987") && !partialText.includes("3210"), `number still there: ${partialText}`);
+      assert.ok(partialText.includes("SECRET account") && partialText.includes("here."), `took too much: ${partialText}`);
+      assert.equal(partial.glyphsRemoved, "987-654-3210".length);
+    });
+    check("the words after a removed one stay exactly where they were", () => {
+      const original = before.find((i) => i.str.includes("SECRET"))!;
+      const hereX = original.x + widthOf("SECRET account 987-654-3210 ", 11.5);
+      const moved = after.find((i) => i.str.trim().startsWith("here"));
+      // pdf.js may merge the remaining words into one item; then check its start.
+      if (moved) assertClose("here. x", moved.x, hereX, 0.5);
+      else assertClose("line start", after.find((i) => i.str.includes("SECRET"))!.x, original.x, 0.5);
+    });
+
+    // TJ arrays: how Word, LaTeX and browsers write text. Never redacted before.
+    const tj = await rawPage("BT /F1 12 Tf 72 700 Td [(Hello ) -250 (SECRET) -250 ( World)] TJ ET");
+    const helloW = widthOf("Hello ", 12) + (250 / 1000) * 12;
+    const tjOut = await redact(tj.bytes, [{ x: 72 + helloW, y: 697, w: widthOf("SECRET", 12), h: 12 }]);
+    const tjText = await textOf(tjOut.bytes);
+    check("text in TJ arrays is redacted too", () => {
+      assert.ok(!tjText.includes("SECRET"), `still there: ${tjText}`);
+      assert.ok(tjText.includes("Hello") && tjText.includes("World"), `took too much: ${tjText}`);
+    });
+
+    // Several runs on one line, positioned only by the advance of the last.
+    const runs = await rawPage("BT /F1 12 Tf 72 660 Td (Visible ) Tj (HIDDEN) Tj ( tail) Tj ET");
+    const runsOut = await redact(runs.bytes, [{ x: 72 + widthOf("Visible ", 12), y: 657, w: widthOf("HIDDEN", 12), h: 12 }]);
+    const runsText = await textOf(runsOut.bytes);
+    check("runs placed by the previous run's advance are measured where they are", () => {
+      assert.ok(!runsText.includes("HIDDEN"), `still there: ${runsText}`);
+      assert.ok(runsText.includes("Visible") && runsText.includes("tail"), `took too much: ${runsText}`);
+    });
+
+    // Text turned 90°, running up the page from (300, 300).
+    const turned = await rawPage("BT /F1 12 Tf 0 1 -1 0 300 300 Tm (VERTICAL) Tj 1 0 0 1 72 100 Tm (Upright stays) Tj ET");
+    const turnedOut = await redact(turned.bytes, [{ x: 286, y: 298, w: 18, h: widthOf("VERTICAL", 12) + 4 }]);
+    const turnedText = await textOf(turnedOut.bytes);
+    check("rotated text under a box is removed", () => {
+      assert.ok(!turnedText.includes("VERTICAL"), `still there: ${turnedText}`);
+      assert.ok(turnedText.includes("Upright stays"), `took too much: ${turnedText}`);
+    });
+
+    // A font whose widths can't be read: the touched run goes whole, never leaks.
+    const unknown = await rawPage("BT /F9 12 Tf 72 640 Td (Mystery font SECRET) Tj ET /F1 12 Tf BT 72 600 Td (Known stays) Tj ET", (doc, res) => {
+      (res.Font as Record<string, unknown>).F9 = doc.context.register(doc.context.obj({ Type: "Font", Subtype: "TrueType", BaseFont: "NotAStandardFont" }));
+    });
+    const unknownOut = await redact(unknown.bytes, [{ x: 140, y: 637, w: 40, h: 12 }]);
+    check("text in a font without widths is removed whole rather than risked", () => {
+      assert.equal(unknownOut.runsRemovedWhole, 1);
+      assert.equal(unknownOut.glyphsRemoved, 0);
+    });
+
+    // Images: a 10×10 red RGB image drawn 100×100 at (100, 100).
+    const red = new Uint8Array(10 * 10 * 3);
+    for (let i = 0; i < red.length; i += 3) red[i] = 255;
+    const withImage = (filter?: string, data: Uint8Array = red) =>
+      rawPage("q 100 0 0 100 100 100 cm /Im1 Do Q BT /F1 12 Tf 72 60 Td (Caption) Tj ET", (doc, res) => {
+        const dict = { Type: "XObject", Subtype: "Image", Width: 10, Height: 10, ColorSpace: "DeviceRGB", BitsPerComponent: 8 };
+        const stream = filter
+          ? doc.context.stream(data, { ...dict, Filter: filter })
+          : doc.context.flateStream(data, dict);
+        res.XObject = { Im1: doc.context.register(stream) };
+      });
+    const imageAt = async (bytes: Uint8Array) => {
+      const doc = await PDFDocument.load(bytes);
+      const xobjects = doc.getPage(0).node.Resources()!.lookup(PDFName.of("XObject"), PDFDict);
+      const names = xobjects.keys().map((k) => k.decodeText());
+      const ops = await (await (await pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 }).promise).getPage(1)).getOperatorList();
+      return { doc, xobjects, names, painted: ops.fnArray.filter((f) => f === pdfjs.OPS.paintImageXObject).length };
+    };
+
+    const imagePage = await withImage();
+    // The image's top-left quarter: page x 100..150, y 150..200.
+    const imageOut = await redact(imagePage.bytes, [{ x: 100, y: 150, w: 50, h: 50 }]);
+    const edited = await imageAt(imageOut.bytes);
+    const editedName = edited.names.find((n) => n.startsWith("VrushRedactIm"));
+    check("a partly covered image has the covered pixels blanked and the rest kept", () => {
+      assert.equal(imageOut.imagesEdited, 1);
+      assert.ok(editedName, `no edited image among ${edited.names.join(", ")}`);
+      const stream = edited.xobjects.lookup(PDFName.of(editedName!), PDFRawStream);
+      const pixels = decodePDFRawStream(stream).decode();
+      const at = (x: number, y: number) => [...pixels.subarray((y * 10 + x) * 3, (y * 10 + x) * 3 + 3)];
+      assert.deepEqual(at(0, 0), [0, 0, 0], "covered corner not blanked");
+      assert.deepEqual(at(4, 4), [0, 0, 0], "covered pixel not blanked");
+      assert.deepEqual(at(9, 9), [255, 0, 0], "uncovered pixel changed");
+      assert.deepEqual(at(5, 0), [255, 0, 0], "pixel just outside the box changed");
+      assert.equal(edited.painted, 1);
+    });
+
+    const coveredOut = await redact(imagePage.bytes, [{ x: 90, y: 90, w: 120, h: 120 }]);
+    check("a fully covered image is removed", async () => {
+      assert.equal(coveredOut.imagesRemoved, 1);
+      assert.equal((await imageAt(coveredOut.bytes)).painted, 0);
+    });
+
+    const opaque = await withImage("JBIG2Decode", new Uint8Array([1, 2, 3, 4]));
+    const opaqueOut = await redact(opaque.bytes, [{ x: 100, y: 150, w: 50, h: 50 }]);
+    check("a partly covered image that can't be edited is removed, not kept", async () => {
+      assert.equal(opaqueOut.imagesRemoved, 1);
+      assert.equal((await imageAt(opaqueOut.bytes)).painted, 0);
+      assert.ok((await textOf(opaqueOut.bytes)).includes("Caption"));
+    });
+
+    const jpegCalls: unknown[] = [];
+    const jpegOut = await redact((await withImage("DCTDecode", new Uint8Array([0xff, 0xd8, 0xff, 0xd9]))).bytes, [{ x: 100, y: 150, w: 50, h: 50 }], async (job) => {
+      jpegCalls.push(job.regions);
+      return new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+    });
+    check("a partly covered JPEG goes to the image editor with the pixels to blank", () => {
+      assert.equal(jpegOut.imagesEdited, 1);
+      assert.deepEqual(jpegCalls, [[{ x: 0, y: 0, w: 5, h: 5 }]]);
+    });
+
+    // Text inside a form XObject.
+    const formPage = await rawPage("q 1 0 0 1 72 500 cm /Fm1 Do Q BT /F1 12 Tf 72 400 Td (Outside stays) Tj ET", (doc, res) => {
+      const fontRef = (res.Font as Record<string, PDFRef>).F1;
+      const form = doc.context.flateStream("BT /F1 12 Tf 10 10 Td (FORMSECRET) Tj ET", {
+        Type: "XObject", Subtype: "Form", BBox: [0, 0, 200, 40], Resources: { Font: { F1: fontRef } },
+      });
+      res.XObject = { Fm1: doc.context.register(form) };
+    });
+    const formOut = await redact(formPage.bytes, [{ x: 72, y: 505, w: 150, h: 25 }]);
+    const formText = await textOf(formOut.bytes);
+    check("text inside a form XObject is redacted", () => {
+      assert.ok(!formText.includes("FORMSECRET"), `still there: ${formText}`);
+      assert.ok(formText.includes("Outside stays"), `took too much: ${formText}`);
+      assert.equal(formOut.formsRedacted, 1);
+    });
+
+    // Vector paths: one wholly under the box, one only partly.
+    const pathPage = await rawPage("0 0 1 rg 200 200 20 20 re f 1 0 0 rg 300 200 100 20 re f");
+    const pathOut = await redact(pathPage.bytes, [{ x: 190, y: 190, w: 150, h: 40 }]);
+    check("a path wholly under a box is removed; one partly under it stays", async () => {
+      assert.equal(pathOut.pathsRemoved, 1);
+      const ops = await (await (await pdfjs.getDocument({ data: pathOut.bytes.slice(), verbosity: 0 }).promise).getPage(1)).getOperatorList();
+      // The partly covered path plus the baked box remain.
+      assert.equal(ops.fnArray.filter((f) => f === pdfjs.OPS.constructPath).length, 2);
+    });
+
+    // A filled-in form field under a box loses its value, not just its widget.
+    const fieldDoc = await PDFDocument.create();
+    const fieldPage = fieldDoc.addPage([612, 792]);
+    const field = fieldDoc.getForm().createTextField("ssn");
+    field.setText("123-45-6789");
+    field.addToPage(fieldPage, { x: 72, y: 600, width: 200, height: 24 });
+    const fieldOut = await redact(await fieldDoc.save(), [{ x: 70, y: 598, w: 210, h: 30 }]);
+    check("a form field under a box loses its value", async () => {
+      const reloaded = await PDFDocument.load(fieldOut.bytes);
+      assert.equal(reloaded.getForm().getTextField("ssn").getText() ?? "", "");
+      assert.ok(!new TextDecoder("latin1").decode(fieldOut.bytes).includes("123-45-6789"), "the value is still in the file");
+    });
+
+    // The label is drawn with a font the page actually has.
+    const labelOut = await applyRedactionsToDocument({
+      docBytes: lines.bytes,
+      pageRedactions: [{ pageIndex: 0, targets: [{ rect: { x: 60, y: 617, w: 300, h: 11 }, fillColor: "#000000", overlayText: "[REDACTED]" }] }],
+    });
+    check("the box's label uses a font registered on the page", async () => {
+      const doc = await PDFDocument.load(labelOut.bytes);
+      const fonts = doc.getPage(0).node.Resources()!.lookup(PDFName.of("Font"), PDFDict);
+      assert.ok(fonts.keys().some((k) => k.decodeText().startsWith("VrushRedactF")));
+      assert.ok((await textOf(labelOut.bytes)).includes("[REDACTED]"));
+    });
+  }
+
   console.log("\nOCR text layer…");
   {
     const doc = await PDFDocument.create();

@@ -252,18 +252,22 @@
             />
           {/if}
         {:else if isRedact(annot)}
-          {@const r = annot.rect}
-          <rect
-            x={r.x}
-            y={r.y}
-            width={r.w}
-            height={r.h}
-            fill={annot.fillColor || "#000000"}
-            fill-opacity={annot === preview ? 0.35 : 0.85}
-            stroke={annot.borderColor || "#ef4444"}
-            stroke-width="1.5"
-            stroke-dasharray={annot === preview ? "4 3" : undefined}
-          />
+          <!-- One box per selected line, exactly as applying will draw them. -->
+          {@const boxes = annot.quads?.length ? annot.quads.map(rectFromQuad) : [annot.rect]}
+          {#each boxes as r, i (i)}
+            <rect
+              x={r.x}
+              y={r.y}
+              width={r.w}
+              height={r.h}
+              fill={annot.fillColor || "#000000"}
+              fill-opacity={annot === preview ? 0.35 : 0.85}
+              stroke={annot.borderColor || "#ef4444"}
+              stroke-width="1.5"
+              stroke-dasharray={annot === preview ? "4 3" : undefined}
+            />
+          {/each}
+          {@const r = boxes[0]}
           {#if annot.overlayText || (!annot.overlayText && r.w >= 30 && r.h >= 12)}
             {@const text = annot.overlayText || "[REDACTED]"}
             {@const fontSize = Math.min(Math.max(r.h * 0.55, 6), 11)}

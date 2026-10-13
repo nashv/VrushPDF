@@ -2206,6 +2206,70 @@ async function main() {
       writeFileSync(`${OUT_DIR}/ui-scan.png`, Buffer.from(r.data, "base64")),
     );
 
+    // -------------------------------------------------------------- redaction
+    console.log("\nredaction");
+
+    await cdp.eval(`window.__nextOpen = [${JSON.stringify(PDF_PATH_2)}]`);
+    await cdp.eval("document.querySelector('.tabbar .add').click()");
+    const pageText = () =>
+      cdp.eval<string>("[...document.querySelectorAll('.page[data-page-index=\"0\"] .textLayer span')].map((s) => s.textContent).join('\\n')");
+    await waitFor("the appendix's text", pageText, (t) => t.includes("liquor jugs"), 25000).catch(() => "");
+    await cdp.eval(`document.querySelector('.tools button[title^="Select ("]').click()`);
+
+    // A box dragged over one line.
+    await cdp.eval("document.querySelector('[title^=\"Redact\"]').click()");
+    const target = await cdp.eval<{ x: number; y: number; w: number; h: number }>(`(() => {
+      const span = [...document.querySelectorAll('.page[data-page-index="0"] .textLayer span')].find((s) => s.textContent.startsWith('liquor jugs'));
+      span.scrollIntoView({ block: "center" });
+      const r = span.getBoundingClientRect();
+      return { x: r.left, y: r.top, w: r.width, h: r.height };
+    })()`);
+    await drag(cdp, { x: target.x - 2, y: target.y + target.h * 0.15 }, { x: target.x + target.w + 2, y: target.y + target.h * 0.85 }, 8);
+
+    // A text selection from mid-line 5 to mid-line 7, redacted from the context menu.
+    await cdp.eval(`document.querySelector('.tools button[title^="Select text"]').click()`);
+    await sleep(150);
+    const selection = await cdp.eval<{ keep1: string; gone: string[]; keep2: string } | null>(`(() => {
+      const spans = [...document.querySelectorAll('.page[data-page-index="0"] .textLayer span')];
+      const first = spans.find((s) => s.textContent.startsWith('Annotation round-trips'));
+      const middle = spans.find((s) => s.textContent.startsWith('underline another'));
+      const last = spans.find((s) => s.textContent.startsWith('survive as real'));
+      if (!first || !middle || !last) return null;
+      const range = document.createRange();
+      range.setStart(first.firstChild, 30);
+      range.setEnd(last.firstChild, 20);
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+      const box = first.getBoundingClientRect();
+      first.closest('.page').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: box.left + 40, clientY: box.top + 4 }));
+      return {
+        keep1: first.textContent.slice(0, 24),
+        gone: [first.textContent.slice(34, 50), middle.textContent, last.textContent.slice(0, 16)],
+        keep2: last.textContent.slice(24),
+      };
+    })()`);
+    await sleep(250);
+    await cdp.eval("[...document.querySelectorAll('.context-menu .menu-item')].find((b) => b.textContent.includes('Redact Text'))?.click()");
+    await sleep(250);
+    const pendingBoxes = await cdp.eval<number>("document.querySelectorAll('.annot-layer rect[stroke=\"#ef4444\"]').length");
+    check("a three-line selection is marked as one box per line", () => assert.equal(pendingBoxes, 1 + 3, `${pendingBoxes} boxes`));
+
+    await cdp.eval("document.querySelector('.redact-apply-btn').click()");
+    await waitFor("redactions to apply", toastText, (t) => /Permanently applied/.test(t), 30000).catch(() => "");
+    const redacted = await waitFor("the redacted page", pageText, (t) => !t.includes("liquor jugs"), 15000).catch(pageText);
+    check("the boxed line is removed from the page text", () => assert.ok(!redacted.includes("liquor jugs"), redacted));
+    check("the lines around it are untouched", () => {
+      assert.ok(redacted.includes("The quick brown fox"), `line above lost:\n${redacted}`);
+      assert.ok(redacted.includes("judge my vow"), `line below lost:\n${redacted}`);
+    });
+    check("a multi-line selection removes exactly the selected text", () => {
+      assert.ok(selection, "could not build the selection");
+      for (const gone of selection!.gone) assert.ok(!redacted.includes(gone.trim()), `"${gone}" still there:\n${redacted}`);
+      assert.ok(redacted.includes(selection!.keep1.trim()), `the unselected start of the first line was lost:\n${redacted}`);
+      assert.ok(redacted.includes(selection!.keep2.trim()), `the unselected end of the last line was lost:\n${redacted}`);
+    });
+    await cdp.eval(`document.querySelector('.tools button[title^="Select ("]').click()`);
+
     console.log("\nforms");
 
     await cdp.eval(`window.__nextOpen = [${JSON.stringify(FORM_PATH)}]`);

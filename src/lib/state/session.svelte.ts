@@ -20,9 +20,10 @@ import { addOcrText, embedOcrFont, markOcrProducer, type OcrWord } from "$lib/an
 import { applyRedactionsToDocument, type RedactTarget } from "$lib/annotations/redact";
 import { replaceWithImage } from "$lib/annotations/replacePage";
 import { buildSavedPdf, type SourceBytes } from "$lib/annotations/save";
-import { isRedact, isStamp, transformAnnot, type Annot, type PageEntry } from "$lib/annotations/types";
+import { isRedact, isStamp, rectFromQuad, transformAnnot, type Annot, type PageEntry } from "$lib/annotations/types";
 import type { ImageSource } from "$lib/annotations/write";
 import { pageHasText, recognizePage, type OcrLanguage } from "$lib/ocr/engine";
+import { blankJpegRegions } from "$lib/pdf/imageEdit";
 import { PasswordRequired } from "$lib/pdf/pdfjs";
 import type { NormQuad } from "$lib/scan/analysis";
 import { correctPage, measureSkew, MIN_SKEW_DEGREES, type Correction, type CorrectedPage } from "$lib/scan/correct";
@@ -522,11 +523,12 @@ class Session {
         const pageIdx = pageIndexMap.get(redact.pageId);
         if (pageIdx === undefined) continue;
         const list = redactionsByPageIndex.get(pageIdx) ?? [];
-        list.push({
-          rect: redact.rect,
-          fillColor: redact.fillColor,
-          overlayText: redact.overlayText,
-        });
+        // A text selection over several lines is one box per line: their
+        // union would also take the unselected ends of the first and last.
+        const boxes = redact.quads?.length ? redact.quads.map(rectFromQuad) : [redact.rect];
+        boxes.forEach((rect, i) =>
+          list.push({ rect, fillColor: redact.fillColor, overlayText: i === 0 ? redact.overlayText : undefined }),
+        );
         redactionsByPageIndex.set(pageIdx, list);
       }
 
@@ -537,11 +539,22 @@ class Session {
       const sanitized = await applyRedactionsToDocument({
         docBytes: buildResult.bytes,
         pageRedactions,
+        editImage: blankJpegRegions,
       });
 
       await this.#reloadTransformed(tab, sanitized.bytes);
 
-      this.notify(`Permanently applied ${count} redaction(s). Underlying text & data excised.`);
+      // Say plainly when something was removed whole rather than precisely.
+      const notes: string[] = [];
+      if (sanitized.imagesRemoved > 0) {
+        notes.push(`${sanitized.imagesRemoved} image(s) under the boxes couldn't be edited and were removed entirely.`);
+      }
+      if (sanitized.runsRemovedWhole > 0) {
+        notes.push("Some text in a font that couldn't be measured was removed as whole runs.");
+      }
+      this.notify(
+        `Permanently applied ${count} redaction(s): the content under them is removed from the file.${notes.length ? ` ${notes.join(" ")}` : ""}`,
+      );
       return true;
     });
 
