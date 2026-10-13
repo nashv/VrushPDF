@@ -645,10 +645,20 @@ fn parse_checksum_from_sums(sums_text: &str, asset_name: &str) -> Option<String>
     None
 }
 
+#[derive(Clone, Debug)]
+struct StagedUpdate {
+    asset_name: String,
+    temp_file_path: PathBuf,
+}
+
+static STAGED_UPDATE: Mutex<Option<StagedUpdate>> = Mutex::new(None);
+
 #[cfg(target_os = "macos")]
-fn execute_platform_installer(_asset_name: &str, temp_dmg: &Path) -> Result<(), String> {
+fn execute_platform_installer(_asset_name: &str, temp_dmg: &Path, relaunch: bool) -> Result<(), String> {
+    let pid = std::process::id();
     let mount_point = std::env::temp_dir().join(format!(
-        "vrushpdf_mount_{}",
+        "vrushpdf_mount_{}_{}",
+        pid,
         std::time::SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -670,35 +680,57 @@ fn execute_platform_installer(_asset_name: &str, temp_dmg: &Path) -> Result<(), 
     }
 
     let script = if let Some(target_app) = app_bundle {
+        let relaunch_cmd = if relaunch {
+            format!(r#"open "{}""#, target_app.display())
+        } else {
+            String::new()
+        };
+
         format!(
             r#"
-            sleep 1
+            while kill -0 {pid} 2>/dev/null; do
+                sleep 0.1
+            done
             hdiutil attach -nobrowse -readonly "{dmg}" -mountpoint "{mount}" || exit 1
             if [ -d "{mount}/VrushPDF.app" ]; then
                 rm -rf "{target}"
                 ditto "{mount}/VrushPDF.app" "{target}"
             fi
-            hdiutil detach "{mount}" -force || true
+            hdiutil detach "{mount}" -force || diskutil unmount force "{mount}" || true
             rm -f "{dmg}"
-            open -a "{target}"
+            {relaunch_cmd}
             "#,
+            pid = pid,
             dmg = temp_dmg.display(),
             mount = mount_point.display(),
-            target = target_app.display()
+            target = target_app.display(),
+            relaunch_cmd = relaunch_cmd
         )
     } else {
+        let relaunch_cmd = if relaunch {
+            format!(r#"open "{}""#, temp_dmg.display())
+        } else {
+            String::new()
+        };
+
         format!(
             r#"
-            sleep 1
-            open "{dmg}"
+            while kill -0 {pid} 2>/dev/null; do
+                sleep 0.1
+            done
+            {relaunch_cmd}
             "#,
-            dmg = temp_dmg.display()
+            pid = pid,
+            relaunch_cmd = relaunch_cmd
         )
     };
 
     std::process::Command::new("/bin/sh")
         .arg("-c")
         .arg(&script)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .spawn()
         .map_err(|e| format!("failed to launch updater: {e}"))?;
 
@@ -706,23 +738,68 @@ fn execute_platform_installer(_asset_name: &str, temp_dmg: &Path) -> Result<(), 
 }
 
 #[cfg(target_os = "windows")]
-fn execute_platform_installer(asset_name: &str, temp_file: &Path) -> Result<(), String> {
-    if asset_name.ends_with(".exe") {
-        std::process::Command::new(temp_file)
-            .arg("/S")
-            .spawn()
-            .map_err(|e| format!("failed to launch installer: {e}"))?;
+fn execute_platform_installer(asset_name: &str, temp_file: &Path, relaunch: bool) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    let pid = std::process::id();
+    let current_exe = std::env::current_exe().unwrap_or_default();
+    let current_exe_str = current_exe.to_string_lossy().replace('\'', "''");
+    let temp_file_str = temp_file.to_string_lossy().replace('\'', "''");
+
+    let relaunch_script = if relaunch && !current_exe_str.is_empty() {
+        format!(
+            r#"if (Test-Path '{current_exe}') {{ Start-Process -FilePath '{current_exe}' }}"#,
+            current_exe = current_exe_str
+        )
+    } else {
+        String::new()
+    };
+
+    let ps_script = if asset_name.ends_with(".exe") {
+        format!(
+            r#"
+            $targetPid = {pid}
+            while (Get-Process -Id $targetPid -ErrorAction SilentlyContinue) {{ Start-Sleep -Milliseconds 100 }}
+            Start-Process -FilePath '{temp_file}' -ArgumentList '/S' -Wait
+            {relaunch_script}
+            Remove-Item -Path '{temp_file}' -Force -ErrorAction SilentlyContinue
+            "#,
+            pid = pid,
+            temp_file = temp_file_str,
+            relaunch_script = relaunch_script
+        )
     } else if asset_name.ends_with(".msi") {
-        std::process::Command::new("msiexec")
-            .args(["/i", &temp_file.to_string_lossy(), "/passive"])
-            .spawn()
-            .map_err(|e| format!("failed to launch msi installer: {e}"))?;
-    }
+        format!(
+            r#"
+            $targetPid = {pid}
+            while (Get-Process -Id $targetPid -ErrorAction SilentlyContinue) {{ Start-Sleep -Milliseconds 100 }}
+            Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i "{temp_file}" /passive' -Wait
+            {relaunch_script}
+            Remove-Item -Path '{temp_file}' -Force -ErrorAction SilentlyContinue
+            "#,
+            pid = pid,
+            temp_file = temp_file_str,
+            relaunch_script = relaunch_script
+        )
+    } else {
+        return Err("Unsupported Windows installer format".to_string());
+    };
+
+    std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &ps_script])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("failed to launch windows installer: {e}"))?;
+
     Ok(())
 }
 
 #[cfg(target_os = "linux")]
-fn execute_platform_installer(asset_name: &str, temp_file: &Path) -> Result<(), String> {
+fn execute_platform_installer(asset_name: &str, temp_file: &Path, relaunch: bool) -> Result<(), String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -733,21 +810,88 @@ fn execute_platform_installer(asset_name: &str, temp_file: &Path) -> Result<(), 
         }
     }
 
+    let pid = std::process::id();
+    let current_exe = std::env::current_exe().unwrap_or_default();
+
     if asset_name.ends_with(".AppImage") {
-        std::process::Command::new(temp_file)
+        let relaunch_cmd = if relaunch {
+            r#"
+            if [ -n "$APPIMAGE" ] && [ -f "$APPIMAGE" ]; then
+                cp -f "{temp_file}" "$APPIMAGE"
+                chmod +x "$APPIMAGE"
+                rm -f "{temp_file}"
+                "$APPIMAGE" &
+            elif [ -f "{target}" ]; then
+                cp -f "{temp_file}" "{target}"
+                chmod +x "{target}"
+                rm -f "{temp_file}"
+                "{target}" &
+            else
+                "{temp_file}" &
+            fi
+            "#
+        } else {
+            r#"
+            if [ -n "$APPIMAGE" ] && [ -f "$APPIMAGE" ]; then
+                cp -f "{temp_file}" "$APPIMAGE"
+                chmod +x "$APPIMAGE"
+                rm -f "{temp_file}"
+            elif [ -f "{target}" ]; then
+                cp -f "{temp_file}" "{target}"
+                chmod +x "{target}"
+                rm -f "{temp_file}"
+            fi
+            "#
+        };
+
+        let script = format!(
+            r#"
+            while kill -0 {pid} 2>/dev/null; do
+                sleep 0.1
+            done
+            {body}
+            "#,
+            pid = pid,
+            body = relaunch_cmd
+                .replace("{temp_file}", &temp_file.to_string_lossy())
+                .replace("{target}", &current_exe.to_string_lossy())
+        );
+
+        std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(&script)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
             .spawn()
-            .map_err(|e| format!("failed to launch AppImage: {e}"))?;
+            .map_err(|e| format!("failed to launch AppImage updater: {e}"))?;
     } else if asset_name.ends_with(".deb") {
-        std::process::Command::new("xdg-open")
-            .arg(temp_file)
+        let script = format!(
+            r#"
+            while kill -0 {pid} 2>/dev/null; do
+                sleep 0.1
+            done
+            xdg-open "{temp_file}"
+            "#,
+            pid = pid,
+            temp_file = temp_file.display()
+        );
+
+        std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(&script)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
             .spawn()
             .map_err(|e| format!("failed to open deb package: {e}"))?;
     }
+
     Ok(())
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-fn execute_platform_installer(_asset_name: &str, _temp_file: &Path) -> Result<(), String> {
+fn execute_platform_installer(_asset_name: &str, _temp_file: &Path, _relaunch: bool) -> Result<(), String> {
     Err("Automatic installation is not supported on this platform".to_string())
 }
 
@@ -846,7 +990,12 @@ pub fn download_and_install_update<R: Runtime>(
         }
     }
 
-    execute_platform_installer(&args.asset_name, &temp_file_path)?;
+    if let Ok(mut lock) = STAGED_UPDATE.lock() {
+        *lock = Some(StagedUpdate {
+            asset_name: args.asset_name,
+            temp_file_path,
+        });
+    }
 
     Ok(())
 }
@@ -864,17 +1013,52 @@ pub fn install_update_payload<R: Runtime>(
     let temp_file_path = temp_dir.join(&asset_name);
     fs::write(&temp_file_path, bytes).map_err(|e| format!("could not write installer: {e}"))?;
 
-    execute_platform_installer(&asset_name, &temp_file_path)
+    if let Ok(mut lock) = STAGED_UPDATE.lock() {
+        *lock = Some(StagedUpdate {
+            asset_name,
+            temp_file_path,
+        });
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
 pub fn relaunch_app<R: Runtime>(app: AppHandle<R>) {
-    app.restart();
+    let staged_update = if let Ok(mut lock) = STAGED_UPDATE.lock() {
+        lock.take()
+    } else {
+        None
+    };
+
+    if let Some(staged) = staged_update {
+        if let Err(e) = execute_platform_installer(&staged.asset_name, &staged.temp_file_path, true) {
+            eprintln!("Failed to execute platform installer: {e}");
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            unsafe { libc::_exit(0) };
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            app.exit(0);
+        }
+    } else {
+        app.restart();
+    }
 }
 
 /// Cleanly exit the application process.
 #[tauri::command]
 pub fn exit_app<R: Runtime>(app: AppHandle<R>) {
+    if let Ok(mut staged_lock) = STAGED_UPDATE.lock() {
+        if let Some(staged) = staged_lock.take() {
+            let _ = execute_platform_installer(&staged.asset_name, &staged.temp_file_path, false);
+        }
+    }
+
     #[cfg(target_os = "linux")]
     {
         // On Linux Wayland (particularly KDE Plasma with WebKitGTK and appmenu modules),
