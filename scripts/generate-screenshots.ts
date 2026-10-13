@@ -1,6 +1,6 @@
-import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { PDFDocument, StandardFonts, degrees, rgb } from "pdf-lib";
 
 const FRONTEND = "http://localhost:1420";
 const CDP_PORT = 9227;
@@ -9,6 +9,9 @@ const SCREENSHOTS_DIR = "docs/screenshots";
 const PDF_PATH = `${OUT_DIR}/report.pdf`;
 const FORM_PATH = `${OUT_DIR}/form.pdf`;
 const STAMP_PNG_PATH = `${OUT_DIR}/stamp.png`;
+const SCAN_PATH = `${OUT_DIR}/scan.pdf`;
+const PHOTO_PATH = `${OUT_DIR}/showcase-photo.pdf`;
+const SHOWCASE_FORM_PATH = `${OUT_DIR}/showcase-form.pdf`;
 
 const BROWSERS = [
   "/Applications/Brave Origin.app/Contents/MacOS/Brave Origin",
@@ -257,153 +260,377 @@ async function startBrowser(): Promise<{ child: ChildProcess; wsUrl: string }> {
   return { child, wsUrl: target!.webSocketDebuggerUrl };
 }
 
+/**
+ * A phone photo of a printed page lying at an angle on a dark desk, for the
+ * scan-correction card: the sheet, slightly turned, with lines of text on it.
+ */
+async function buildPhotoPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = doc.embedStandardFont(StandardFonts.Helvetica);
+  const bold = doc.embedStandardFont(StandardFonts.HelveticaBold);
+  const page = doc.addPage([612, 792]);
+  page.drawRectangle({ x: 0, y: 0, width: 612, height: 792, color: rgb(0.24, 0.2, 0.17) });
+  // Sheet corners, top-down: an A4-ish page photographed off-square.
+  page.drawSvgPath("M118 92 L506 128 L520 700 L86 676 Z", { x: 0, y: 792, color: rgb(0.97, 0.96, 0.93) });
+  const tilt = 4;
+  const t = (tilt * Math.PI) / 180;
+  const at = (x: number, yDown: number) => ({ x: x + (yDown - 120) * Math.sin(t) * 0.15, y: 792 - yDown - (x - 120) * Math.sin(t) });
+  const lines = [
+    "Purchase agreement",
+    "",
+    "This agreement is made between the parties named below and",
+    "covers the delivery of the goods listed in the attached schedule.",
+    "Payment is due within thirty days of the invoice date. Goods",
+    "remain the property of the seller until paid for in full.",
+    "",
+    "Either party may end this agreement with written notice of",
+    "sixty days. Disputes are settled under the laws of the place",
+    "where the seller has its registered office.",
+    "",
+    "Signed on behalf of the buyer:",
+  ];
+  lines.forEach((line, n) => {
+    if (!line) return;
+    const p = at(150, 170 + n * 30);
+    page.drawText(line, { x: p.x, y: p.y, size: n === 0 ? 20 : 12, font: n === 0 ? bold : font, rotate: degrees(-tilt), color: rgb(0.15, 0.15, 0.17) });
+  });
+  return doc.save();
+}
+
+/**
+ * An application form of the everyday kind: two fillable fields and a
+ * checkbox, plus printed boxes and lines that only the tick, cross and text
+ * box tools can fill in.
+ */
+async function buildFormPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  doc.setTitle("Membership application");
+  const font = doc.embedStandardFont(StandardFonts.Helvetica);
+  const bold = doc.embedStandardFont(StandardFonts.HelveticaBold);
+  const page = doc.addPage([612, 792]);
+  const ink = rgb(0.15, 0.15, 0.18);
+  const rule = rgb(0.55, 0.57, 0.6);
+  page.drawText("Membership application", { x: 64, y: 712, size: 24, font: bold, color: ink });
+  page.drawText("Please complete every section and sign at the bottom.", { x: 64, y: 688, size: 11, font, color: rule });
+
+  page.drawText("Full name", { x: 64, y: 640, size: 11, font, color: ink });
+  page.drawText("Email", { x: 64, y: 590, size: 11, font, color: ink });
+  const form = doc.getForm();
+  form.createTextField("name").addToPage(page, { x: 64, y: 608, width: 300, height: 26 });
+  form.createTextField("email").addToPage(page, { x: 64, y: 558, width: 300, height: 26 });
+
+  page.drawText("Membership type", { x: 64, y: 510, size: 13, font: bold, color: ink });
+  ["Individual", "Family", "Student"].forEach((label, i) => {
+    page.drawRectangle({ x: 64 + i * 150, y: 478, width: 16, height: 16, borderColor: ink, borderWidth: 1 });
+    page.drawText(label, { x: 88 + i * 150, y: 482, size: 11, font, color: ink });
+  });
+  page.drawText("Send me the monthly newsletter", { x: 64, y: 440, size: 13, font: bold, color: ink });
+  ["Yes", "No"].forEach((label, i) => {
+    page.drawRectangle({ x: 64 + i * 150, y: 408, width: 16, height: 16, borderColor: ink, borderWidth: 1 });
+    page.drawText(label, { x: 88 + i * 150, y: 412, size: 11, font, color: ink });
+  });
+  form.createCheckBox("terms").addToPage(page, { x: 64, y: 360, width: 16, height: 16 });
+  page.drawText("I have read and accept the membership terms.", { x: 88, y: 364, size: 11, font, color: ink });
+
+  page.drawLine({ start: { x: 64, y: 270 }, end: { x: 300, y: 270 }, thickness: 0.8, color: rule });
+  page.drawLine({ start: { x: 340, y: 270 }, end: { x: 548, y: 270 }, thickness: 0.8, color: rule });
+  page.drawText("Signature", { x: 64, y: 254, size: 10, font, color: rule });
+  page.drawText("Date", { x: 340, y: 254, size: 10, font, color: rule });
+  return doc.save();
+}
+
 async function main() {
   console.log("Preparing screenshots directory...");
   mkdirSync(SCREENSHOTS_DIR, { recursive: true });
+  writeFileSync(PHOTO_PATH, await buildPhotoPdf());
+  writeFileSync(SHOWCASE_FORM_PATH, await buildFormPdf());
 
-  const seeds: Record<string, string> = {
-    [PDF_PATH]: readFileSync(PDF_PATH).toString("base64"),
-    [FORM_PATH]: readFileSync(FORM_PATH).toString("base64"),
-    [STAMP_PNG_PATH]: readFileSync(STAMP_PNG_PATH).toString("base64"),
-  };
+  const seeds: Record<string, string> = {};
+  for (const path of [PDF_PATH, FORM_PATH, STAMP_PNG_PATH, SCAN_PATH, PHOTO_PATH, SHOWCASE_FORM_PATH]) {
+    seeds[path] = readFileSync(path).toString("base64");
+  }
 
   const vite = await startVite();
   const browser = await startBrowser();
   const cdp = await Cdp.connect(browser.wsUrl);
 
+  const shot = async (name: string) => {
+    await sleep(400);
+    const r = await cdp.send("Page.captureScreenshot", { format: "png" });
+    writeFileSync(`${SCREENSHOTS_DIR}/${name}.png`, Buffer.from(r.data, "base64"));
+    console.log(`📸 ${name}.png`);
+  };
+  const mouse = { button: "left" as const, buttons: 1, pointerType: "mouse" as const, clickCount: 1 };
+  const click = async (p: { x: number; y: number }) => {
+    await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...p });
+    await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", ...p, ...mouse });
+    await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", ...p, ...mouse });
+    await sleep(150);
+  };
+  const drag = async (from: { x: number; y: number }, to: { x: number; y: number }, steps = 10) => {
+    await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", ...from, ...mouse });
+    for (let i = 1; i <= steps; i++) {
+      await cdp.send("Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        x: from.x + ((to.x - from.x) * i) / steps,
+        y: from.y + ((to.y - from.y) * i) / steps,
+        ...mouse,
+      });
+    }
+    await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", ...to, ...mouse });
+    await sleep(250);
+  };
+  /** A hand-drawn signature: a pen stroke starting at `origin`. */
+  const scribble = async (origin: { x: number; y: number }, scale: number) => {
+    const points: { x: number; y: number }[] = [];
+    for (let i = 0; i <= 60; i++) {
+      const t = i / 60;
+      points.push({
+        x: origin.x + scale * (t * 2.6 + 0.12 * Math.sin(t * 19)),
+        y: origin.y + scale * (-0.28 * Math.sin(t * 11) * (1 - t * 0.6) - 0.1 * Math.sin(t * 31)),
+      });
+    }
+    await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", ...points[0], ...mouse });
+    for (const p of points.slice(1)) await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...p, ...mouse });
+    await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", ...points.at(-1)!, ...mouse });
+    await sleep(250);
+  };
+  /** Click the centre of the first element matching `selector`, with the real mouse. */
+  const clickOn = async (selector: string) => {
+    const box = await cdp.eval<{ x: number; y: number } | null>(`(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    })()`);
+    if (box) await click(box);
+  };
+  /** Type into a text box that is open for editing, then commit it as finishing typing would. */
+  const typeIntoTextBox = async (text: string) => {
+    await cdp.eval(`(() => {
+      const ta = document.querySelector('.widgets .freetext textarea');
+      ta.value = ${JSON.stringify(text)};
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await sleep(250);
+    await cdp.eval("document.querySelector('.widgets .freetext textarea')?.blur()");
+    await sleep(200);
+  };
+  const tool = (titlePrefix: string) =>
+    cdp.eval(`document.querySelector('.toolbar button[title^=${JSON.stringify(titlePrefix)}]').click()`).then(() => sleep(150));
+  /** Viewport box of a page, scrolled into view first. */
+  const pageBox = async (index: number, block: "start" | "center" = "start") =>
+    cdp.eval<{ x: number; y: number; w: number; h: number }>(`(async () => {
+      const page = document.querySelector('.page[data-page-index="${index}"]');
+      page.scrollIntoView({ block: ${JSON.stringify(block)} });
+      await new Promise((r) => setTimeout(r, 500));
+      const r = page.getBoundingClientRect();
+      return { x: r.left, y: r.top, w: r.width, h: r.height };
+    })()`);
+  /** Viewport box of the text span on a page containing `text`. */
+  const spanBox = (index: number, text: string) =>
+    cdp.eval<{ x: number; y: number; w: number; h: number }>(`(() => {
+      const span = [...document.querySelectorAll('.page[data-page-index="${index}"] .textLayer span')]
+        .find((s) => s.textContent.includes(${JSON.stringify(text)}));
+      const r = span.getBoundingClientRect();
+      return { x: r.left, y: r.top, w: r.width, h: r.height };
+    })()`);
+  const openInNewTab = async (path: string) => {
+    await cdp.eval(`window.__nextOpen = [${JSON.stringify(path)}]`);
+    await cdp.eval("document.querySelector('.tabbar .add').click()");
+    await sleep(1500);
+  };
+  const theme = (value: "light" | "dark") =>
+    cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value }] });
+
   try {
     await cdp.send("Page.enable");
     await cdp.send("Runtime.enable");
-    await cdp.send("DOM.enable");
-    await cdp.send("CSS.enable");
-
-    await cdp.send("Emulation.setDeviceMetricsOverride", {
-      width: 1400,
-      height: 900,
-      deviceScaleFactor: 2,
-      mobile: false,
-    });
-
-    await cdp.send("Page.addScriptToEvaluateOnNewDocument", {
-      source: stubSource(seeds, PDF_PATH),
-    });
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1400, height: 900, deviceScaleFactor: 2, mobile: false });
+    await theme("light");
+    await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source: stubSource(seeds, PDF_PATH) });
 
     console.log("Navigating to app...");
     await cdp.send("Page.navigate", { url: FRONTEND });
-
-    // Wait until document opens
     await waitFor(
-      "document to open",
-      () => cdp.eval<number>("document.querySelectorAll('canvas').length"),
-      (n) => n > 0,
+      "the report's text",
+      () => cdp.eval<number>("document.querySelectorAll('.page[data-page-index=\"0\"] .textLayer span').length"),
+      (n) => n > 5,
       30000,
     );
-    await sleep(1500);
+    await sleep(1200);
 
-    // 1. Overview Screenshot
-    console.log("📸 Capturing 01-editor-overview.png...");
-    const shot1 = await cdp.send("Page.captureScreenshot", { format: "png" });
-    writeFileSync(`${SCREENSHOTS_DIR}/01-editor-overview.png`, Buffer.from(shot1.data, "base64"));
-
-    // 2. Annotation & Markup Studio
-    console.log("📸 Annotating and capturing 02-markup-studio.png...");
+    // ------------------------------------------------ markup on the report
+    let page = await pageBox(0);
+    await tool("Highlight");
     await cdp.eval(`(() => {
-      const btn = document.querySelector('.tools button[title^="Rectangle"]');
-      if (btn) btn.click();
+      const span = [...document.querySelectorAll('.page[data-page-index="0"] .textLayer span')].find((s) => s.textContent.startsWith('The quick brown'));
+      const range = document.createRange();
+      range.selectNodeContents(span);
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+      document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
     })()`);
-    await sleep(200);
-
-    // Draw rectangle
+    await sleep(300);
+    await tool("Underline");
     await cdp.eval(`(() => {
-      const canvas = document.querySelector('.page[data-page-index="0"] canvas');
-      const el = document.querySelector('.overlay');
-      if (canvas && el) {
-        const r = canvas.getBoundingClientRect();
-        el.dispatchEvent(new PointerEvent('pointerdown', { clientX: r.x + 80, clientY: r.y + 120, bubbles: true }));
-        el.dispatchEvent(new PointerEvent('pointermove', { clientX: r.x + 360, clientY: r.y + 220, bubbles: true }));
-        el.dispatchEvent(new PointerEvent('pointerup', { clientX: r.x + 360, clientY: r.y + 220, bubbles: true }));
-      }
+      const span = [...document.querySelectorAll('.page[data-page-index="0"] .textLayer span')].find((s) => s.textContent.startsWith('Annotation round-trips'));
+      const range = document.createRange();
+      range.selectNodeContents(span);
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+      document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
     })()`);
-    await sleep(500);
+    await sleep(300);
+    await cdp.eval("getSelection().removeAllRanges()");
 
-    // Select annotation
-    await cdp.eval(`(() => {
-      const annot = document.querySelector('.annot-shape');
-      if (annot) annot.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    })()`);
+    page = await pageBox(0);
+    const px = (fx: number, fy: number) => ({ x: page.x + page.w * fx, y: page.y + page.h * fy });
+    await tool("Rectangle");
+    await drag(px(0.09, 0.455), px(0.91, 0.625));
+    await tool("Arrow");
+    await drag(px(0.86, 0.12), px(0.66, 0.2));
+    await tool("Text box");
+    await drag(px(0.62, 0.075), px(0.93, 0.115));
+    await typeIntoTextBox("Checked against Q3 figures");
+    await tool("Tick mark");
+    await click(px(0.07, 0.205));
+    await click(px(0.07, 0.23));
+    await tool("Freehand pen");
+    await scribble(px(0.25, 0.575), page.w * 0.09);
+    await tool("Select (");
+
+    // Select the rectangle so the properties panel shows its style.
+    await click(px(0.09, 0.54));
+    await cdp.eval("document.querySelector('.tabs [title=\"Annotations\"]')?.click()");
+    await shot("02-markup-studio");
+
+    // ------------------------------------------------------------ overview
+    await cdp.eval("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
+    await cdp.eval("window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
+    await cdp.eval("document.querySelector('.tabs [title=\"Pages\"]')?.click()");
+    await tool("Toggle properties");
+    await pageBox(0);
+    await shot("01-editor-overview");
+    await tool("Toggle properties");
+
+    // ----------------------------------------------------------- redaction
+    page = await pageBox(1);
+    await tool("Redact");
+    // A whole line with a comfortable box, and only part of another: the words
+    // outside the second box must survive, and the neighbouring lines too.
+    const line = await spanBox(1, "liquor jugs");
+    await drag({ x: line.x - 3, y: line.y - 3 }, { x: line.x + line.w + 3, y: line.y + line.h + 3 });
+    const line2 = await spanBox(1, "survive as real");
+    await drag({ x: line2.x + line2.w * 0.27, y: line2.y - 2 }, { x: line2.x + line2.w * 0.62, y: line2.y + line2.h + 2 });
+    await tool("Select (");
+    await cdp.eval("document.querySelector('.redact-apply-btn').click()");
+    await waitFor("redactions to apply", () => cdp.eval<string>("document.querySelector('.toast')?.textContent ?? ''"), (t) => /redaction/i.test(t), 30000);
+    await pageBox(1);
+    await shot("06-redaction");
+
+    // ----------------------------------------------------------- optimizer
+    await tool("Optimize PDF");
+    await waitFor("the optimizer", () => cdp.eval<boolean>("!!document.querySelector('.dialog')"), (v) => v);
+    await sleep(800);
+    await shot("07-pdf-optimizer");
+    await cdp.eval("window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
+    await cdp.eval("[...document.querySelectorAll('.dialog button')].find((b) => /Cancel|Close/.test(b.textContent))?.click()");
     await sleep(400);
 
-    const shot2 = await cdp.send("Page.captureScreenshot", { format: "png" });
-    writeFileSync(`${SCREENSHOTS_DIR}/02-markup-studio.png`, Buffer.from(shot2.data, "base64"));
-
-    // 3. Form Filling & Signature / Stamp Picker
-    console.log("📸 Opening form and capturing 03-forms-and-signatures.png...");
-    await cdp.eval(`window.__nextOpen = [${JSON.stringify(FORM_PATH)}]`);
-    await cdp.eval("document.querySelector('.tabbar .add').click()");
-    await waitFor(
-      "form fields",
-      () => cdp.eval<number>("document.querySelectorAll('.forms .field-control').length"),
-      (n) => n >= 2,
-      25000,
-    );
+    // ----------------------------------------- forms, ticks and a stamp
+    await openInNewTab(SHOWCASE_FORM_PATH);
+    await waitFor("form fields", () => cdp.eval<number>("document.querySelectorAll('.forms .field-control').length"), (n) => n >= 3);
     await sleep(500);
-
-    // Type into form field
-    await cdp.eval(`(() => {
-      const input = document.querySelector('.forms input[aria-label="applicant"]');
-      if (input) {
+    for (const [field, value] of [["name", "Grace Hopper"], ["email", "grace@example.org"]]) {
+      await cdp.eval(`(() => {
+        const input = document.querySelector('.forms input[aria-label="${field}"]');
         input.focus();
-        input.value = "Grace Hopper, Ph.D.";
+        input.value = ${JSON.stringify(value)};
         input.dispatchEvent(new Event('input', { bubbles: true }));
         input.blur();
-      }
-    })()`);
+      })()`);
+    }
+    await clickOn('.forms [aria-label="terms"]');
+    page = await pageBox(0);
+    /** Screen point for PDF coordinates on this 612 x 792 page. */
+    const pt = (x: number, y: number) => ({ x: page.x + (x / 612) * page.w, y: page.y + ((792 - y) / 792) * page.h });
+    await tool("Tick mark");
+    await click(pt(72, 486)); // Individual
+    await click(pt(72, 416)); // newsletter: yes
+    await tool("Cross mark");
+    await click(pt(222, 486)); // Family: no
+    await tool("Text box");
+    await click(pt(344, 292));
+    await typeIntoTextBox("11 October 2026");
+    await tool("Freehand pen");
+    await cdp.eval("document.querySelector('.toolbar .swatch[title=\"#2563eb\"]')?.click()");
+    await scribble(pt(80, 282), page.w * 0.05);
+    await tool("Stamps");
+    await cdp.eval("document.querySelector('[title=\"Place APPROVED\"]')?.click()");
     await sleep(200);
+    await click(pt(420, 705));
+    await tool("Select (");
+    await cdp.eval("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
+    await pageBox(0);
+    await shot("03-forms-and-stamps");
 
-    // Open Stamp Picker menu
-    await cdp.eval(`document.querySelector('.tools button[title="Signatures"]')?.click()`);
-    await sleep(400);
+    // ---------------------------------------------------------------- OCR
+    await openInNewTab(SCAN_PATH);
+    page = await pageBox(0);
+    await tool("Copy text from a scan");
+    await drag(px2(page, 0.06, 0.1), px2(page, 0.98, 0.27), 12);
+    await waitFor(
+      "region OCR",
+      () => cdp.eval<string>("document.querySelector('.ocr-result textarea')?.value ?? ''"),
+      (t) => t.length > 20,
+      60000,
+    );
+    await shot("04-ocr");
+    await tool("Select (");
 
-    const shot3 = await cdp.send("Page.captureScreenshot", { format: "png" });
-    writeFileSync(`${SCREENSHOTS_DIR}/03-forms-and-signatures.png`, Buffer.from(shot3.data, "base64"));
-    await cdp.eval("document.body.click()");
+    // ------------------------------------------------------ scan correction
+    await openInNewTab(PHOTO_PATH);
+    await tool("Fit page");
+    await sleep(600);
+    page = await pageBox(0);
+    await cdp.eval(`(() => {
+      const page = document.querySelector('.page[data-page-index="0"]');
+      const r = page.getBoundingClientRect();
+      page.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 20, clientY: r.top + 20 }));
+    })()`);
     await sleep(300);
+    await cdp.eval("[...document.querySelectorAll('.context-menu .menu-item')].find((b) => b.textContent.includes('Correct Perspective'))?.click()");
+    await waitFor(
+      "corner detection",
+      () => cdp.eval<string>("document.querySelector('.perspective .hint')?.textContent ?? ''"),
+      (t) => t !== "" && !t.includes("Looking"),
+      20000,
+    );
+    await shot("05-scan-correction");
+    await cdp.eval("[...document.querySelectorAll('.perspective button')].find((b) => b.textContent.trim() === 'Cancel')?.click()");
 
-    // 4. PDF Optimizer Dialog
-    console.log("📸 Opening PDF Optimizer and capturing 04-pdf-optimizer.png...");
-    await cdp.eval(`(() => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'o', altKey: true, metaKey: true, bubbles: true }));
-    })()`);
-    await sleep(800);
+    // ------------------------------------------------------------ dark mode
+    await theme("dark");
+    await clickOn(".tabbar .tab");
+    await sleep(1000);
+    await cdp.eval("document.querySelector('.tabs [title=\"Annotations\"]')?.click()");
+    await pageBox(0);
+    await shot("08-dark-mode");
 
-    const shot4 = await cdp.send("Page.captureScreenshot", { format: "png" });
-    writeFileSync(`${SCREENSHOTS_DIR}/04-pdf-optimizer.png`, Buffer.from(shot4.data, "base64"));
-
-    // Close optimizer dialog
-    await cdp.eval(`document.querySelector('.dialog footer button')?.click()`);
-    await sleep(400);
-
-    // 5. Dark Mode (macOS LiquidGlass)
-    console.log("📸 Capturing 05-dark-mode-liquidglass.png...");
-    await cdp.send("Emulation.setEmulatedMedia", {
-      features: [{ name: "prefers-color-scheme", value: "dark" }],
-    });
-    // Switch back to report tab
-    await cdp.eval(`(() => {
-      const tab = document.querySelectorAll('.tabbar .tab')[0];
-      if (tab) tab.click();
-    })()`);
-    await sleep(800);
-
-    const shot5 = await cdp.send("Page.captureScreenshot", { format: "png" });
-    writeFileSync(`${SCREENSHOTS_DIR}/05-dark-mode-liquidglass.png`, Buffer.from(shot5.data, "base64"));
-
-    console.log("✅ All 5 high-resolution screenshots generated successfully in docs/screenshots/!");
+    const errors = await cdp.eval<string[]>("window.__errors");
+    if (errors.length) console.warn("Page errors:", errors);
+    console.log(`✅ Screenshots written to ${SCREENSHOTS_DIR}/`);
   } finally {
     cdp.close();
     browser.child.kill("SIGKILL");
     vite.kill("SIGTERM");
   }
+}
+
+/** A point at fractions of a page box. */
+function px2(page: { x: number; y: number; w: number; h: number }, fx: number, fy: number) {
+  return { x: page.x + page.w * fx, y: page.y + page.h * fy };
 }
 
 main().catch((err) => {
