@@ -188,7 +188,7 @@ function stubSource(seeds: Record<string, string>, cliPath: string): string {
         case "settings_get": return { singleInstance: true, warnUnflattenedSignatures: true, autoUpdate: true };
         case "settings_set": return null;
         case "get_system_target": return { os: "macos", arch: "aarch64" };
-        case "check_latest_release": return JSON.stringify({ tag_name: "v1.0.4", assets: [] });
+        case "check_latest_release": return JSON.stringify({ tag_name: "v1.0.5", assets: [] });
         case "download_and_install_update": return null;
         case "install_update_payload": return null;
         case "relaunch_app": return null;
@@ -371,6 +371,16 @@ async function waitForDocument(cdp: Cdp) {
     (ready) => ready === true,
     25000,
   );
+}
+
+/**
+ * Open whatever `window.__nextOpen` holds in a new tab: "+" gives a start
+ * page, and its Open button goes through the stubbed file dialog.
+ */
+async function openInNewTab(cdp: Cdp) {
+  await cdp.eval("document.querySelector('.tabbar .add').click()");
+  await waitFor("the start page", () => cdp.eval<boolean>("!!document.querySelector('.welcome .btn.primary')"), Boolean);
+  await cdp.eval("document.querySelector('.welcome .btn.primary').click()");
 }
 
 /** Centre of a reorderable item, in viewport coordinates. */
@@ -1200,9 +1210,33 @@ async function main() {
     const tabsBefore = await cdp.eval<number>("document.querySelectorAll('.tabbar .tab').length");
     check("the open document has a tab", () => assert.equal(tabsBefore, 1));
 
-    // Open the second fixture by priming the stubbed dialog and clicking "+".
-    await cdp.eval(`window.__nextOpen = [${JSON.stringify(PDF_PATH_2)}]`);
+    // "+" opens a tab on the start page, as ⌘T does; it once went straight to
+    // the file dialog. A second "+" brings that empty tab back, not another.
+    const dialogsOpened = "window.__ipcCalls.filter((c) => c === 'plugin:dialog|open').length";
+    const dialogsBefore = await cdp.eval<number>(dialogsOpened);
     await cdp.eval("document.querySelector('.tabbar .add').click()");
+    await sleep(200);
+    const startPage = await cdp.eval<{ tabs: number; welcome: boolean; dialog: boolean }>(`({
+      tabs: document.querySelectorAll('.tabbar .tab').length,
+      welcome: !!document.querySelector('.welcome'),
+      dialog: ${dialogsOpened} > ${dialogsBefore},
+    })`);
+    check("the new-tab button opens a start page, not the file dialog", () =>
+      assert.deepEqual(startPage, { tabs: 2, welcome: true, dialog: false }),
+    );
+    await cdp.eval("document.querySelector('.tabbar .tab').click()");
+    await sleep(100);
+    await cdp.eval("document.querySelector('.tabbar .add').click()");
+    await sleep(100);
+    const reused = await cdp.eval<{ tabs: number; welcome: boolean }>(`({
+      tabs: document.querySelectorAll('.tabbar .tab').length,
+      welcome: !!document.querySelector('.welcome'),
+    })`);
+    check("another new tab brings back the empty one", () => assert.deepEqual(reused, { tabs: 2, welcome: true }));
+
+    // Open the second fixture from the start page, through the stubbed dialog.
+    await cdp.eval(`window.__nextOpen = [${JSON.stringify(PDF_PATH_2)}]`);
+    await cdp.eval("document.querySelector('.welcome .btn.primary').click()");
 
     const twoTabs = await waitFor(
       "a second tab",
@@ -2289,7 +2323,7 @@ async function main() {
     console.log("\nOCR");
 
     await cdp.eval(`window.__nextOpen = [${JSON.stringify(PDF_PATH)}]`);
-    await cdp.eval("document.querySelector('.tabbar .add').click()");
+    await openInNewTab(cdp);
     const ocrSpans = () =>
       cdp.eval<number>("document.querySelectorAll('.page[data-page-index=\"0\"] .textLayer span').length");
     const spansBefore = await waitFor("the report's text layer", ocrSpans, (n) => n > 0, 25000).catch(() => 0);
@@ -2394,7 +2428,7 @@ async function main() {
     console.log("\nscan correction");
 
     await cdp.eval(`window.__nextOpen = [${JSON.stringify(SCAN_PATH)}]`);
-    await cdp.eval("document.querySelector('.tabbar .add').click()");
+    await openInNewTab(cdp);
     await waitFor(
       "the scans' text layer",
       () => cdp.eval<number>("document.querySelectorAll('.page[data-page-index=\"0\"] .textLayer span').length"),
@@ -2502,7 +2536,7 @@ async function main() {
     console.log("\nredaction");
 
     await cdp.eval(`window.__nextOpen = [${JSON.stringify(PDF_PATH_2)}]`);
-    await cdp.eval("document.querySelector('.tabbar .add').click()");
+    await openInNewTab(cdp);
     const pageText = () =>
       cdp.eval<string>("[...document.querySelectorAll('.page[data-page-index=\"0\"] .textLayer span')].map((s) => s.textContent).join('\\n')");
     await waitFor("the appendix's text", pageText, (t) => t.includes("liquor jugs"), 25000).catch(() => "");
@@ -2646,7 +2680,7 @@ async function main() {
     console.log("\nforms");
 
     await cdp.eval(`window.__nextOpen = [${JSON.stringify(FORM_PATH)}]`);
-    await cdp.eval("document.querySelector('.tabbar .add').click()");
+    await openInNewTab(cdp);
     const formControls = await waitFor(
       "the form's fields",
       () => cdp.eval<number>("document.querySelectorAll('.forms .field-control').length"),

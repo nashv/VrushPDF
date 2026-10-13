@@ -120,6 +120,19 @@ class Workspace {
     return this.reusableTab() ?? this.open();
   }
 
+  /**
+   * The new-tab button, ⌘T and File ▸ New Tab: a tab on the start page. An
+   * empty tab already open is brought forward rather than joined by another.
+   */
+  newTab(): DocumentTab {
+    const empty = this.tabs.find((t) => !t.isOpen);
+    if (empty) {
+      this.activeId = empty.id;
+      return empty;
+    }
+    return this.open();
+  }
+
   activate(id: string) {
     if (this.tabs.some((t) => t.id === id)) this.activeId = id;
   }

@@ -191,7 +191,7 @@ function fileMenu(recentsSubmenu: Submenu, quit: Spec[]): Spec {
         id: "file.newTab",
         label: "New Tab",
         accelerator: "CmdOrCtrl+T",
-        action: () => void workspace.open(),
+        action: () => void workspace.newTab(),
       }),
       sep,
       item({

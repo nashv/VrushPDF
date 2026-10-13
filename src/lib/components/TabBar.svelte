@@ -86,7 +86,7 @@
     {/each}
   </div>
 
-  <button class="add" title="Open a PDF (⌘O)" aria-label="Open a PDF" onclick={() => session.openViaDialog()}>
+  <button class="add" title="New tab (⌘T)" aria-label="New tab" onclick={() => workspace.newTab()}>
     <Icon name="plus" size={14} />
   </button>
 </div>

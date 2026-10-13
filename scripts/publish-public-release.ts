@@ -17,7 +17,7 @@ import * as path from "node:path";
 import * as crypto from "node:crypto";
 
 const TARGET_REPO = "nashv/VrushPDF";
-const DEFAULT_TAG = "v1.0.4";
+const DEFAULT_TAG = "v1.0.5";
 
 function computeSha256(filePath: string): string {
   const fileBuffer = fs.readFileSync(filePath);

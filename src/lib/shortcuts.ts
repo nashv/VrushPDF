@@ -160,6 +160,9 @@ export function handleShortcut(event: KeyboardEvent) {
         }
         return;
       case "t":
+        event.preventDefault();
+        workspace.newTab();
+        return;
       case "n":
         event.preventDefault();
         void session.openViaDialog();
