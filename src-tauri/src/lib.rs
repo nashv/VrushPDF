@@ -52,6 +52,20 @@ pub fn run() {
             if let Some(window) = _app.get_webview_window("main") {
                 glass::install(&window);
             }
+            /*
+             * The window starts hidden so it never shows the webview's white
+             * before the stylesheet loads; the frontend shows it after its first
+             * styled frame. Should that never happen — a script error, a webview
+             * that stalls — show it regardless rather than leave no window.
+             */
+            if let Some(window) = _app.get_webview_window("main") {
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    if !window.is_visible().unwrap_or(true) {
+                        let _ = window.show();
+                    }
+                });
+            }
             Ok(())
         })
         .on_window_event(|_window, _event| {

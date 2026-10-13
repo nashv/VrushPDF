@@ -189,7 +189,7 @@
     height: 18px;
     flex: none;
     border-radius: 4px;
-    color: var(--text-faint);
+    color: var(--text-muted);
     /* Hidden until useful, so a row of tabs isn't a row of × buttons. */
     opacity: 0;
   }

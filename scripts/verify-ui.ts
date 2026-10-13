@@ -188,7 +188,7 @@ function stubSource(seeds: Record<string, string>, cliPath: string): string {
         case "settings_get": return { singleInstance: true, warnUnflattenedSignatures: true, autoUpdate: true };
         case "settings_set": return null;
         case "get_system_target": return { os: "macos", arch: "aarch64" };
-        case "check_latest_release": return JSON.stringify({ tag_name: "v1.0.3", assets: [] });
+        case "check_latest_release": return JSON.stringify({ tag_name: "v1.0.4", assets: [] });
         case "download_and_install_update": return null;
         case "install_update_payload": return null;
         case "relaunch_app": return null;
@@ -385,6 +385,165 @@ async function itemCentre(cdp: Cdp, selector: string, index: number) {
       visible: r.width > 0 && r.top >= 0 && r.bottom <= window.innerHeight,
     };
   })()`);
+}
+
+/**
+ * Every visible, enabled button whose text (and so its `currentColor` icon)
+ * is below 3:1 against what is really behind it. The background is found by
+ * compositing ancestors until one is opaque; colours go through a canvas so
+ * any syntax the engine reports — `rgb()`, `oklch()`, `color()` — compares.
+ */
+const LOW_CONTRAST_BUTTONS = `(() => {
+  const ctx = Object.assign(document.createElement('canvas'), { width: 1, height: 1 })
+    .getContext('2d', { willReadFrequently: true });
+  const rgba = (css) => {
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillStyle = '#000';
+    ctx.fillStyle = css;
+    ctx.fillRect(0, 0, 1, 1);
+    const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+    return [r, g, b, a / 255];
+  };
+  const over = (top, under) => {
+    const a = top[3];
+    return [0, 1, 2].map((i) => top[i] * a + under[i] * (1 - a)).concat(1);
+  };
+  const lum = ([r, g, b]) => {
+    const f = (v) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+  };
+  const behind = (el) => {
+    const layers = [];
+    for (let node = el; node instanceof Element; node = node.parentElement) {
+      const s = getComputedStyle(node);
+      const bg = rgba(s.backgroundColor);
+      if (bg[3] > 0) layers.push(bg);
+      if (bg[3] >= 1) break;
+    }
+    let colour = rgba(getComputedStyle(document.body).backgroundColor);
+    if (colour[3] < 1) colour = over(colour, [255, 255, 255, 1]);
+    for (const layer of layers.reverse()) colour = over(layer, colour);
+    return colour;
+  };
+  const out = [];
+  for (const el of document.querySelectorAll('button, [role="button"], [role^="menuitem"]')) {
+    if (el.disabled || el.closest('[inert], [aria-hidden="true"]')) continue;
+    // Markers on the page wear the annotation's own colour, not the theme's.
+    if (el.closest('.page-stack')) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 4 || r.height < 4 || r.bottom < 0 || r.top > innerHeight) continue;
+    const s = getComputedStyle(el);
+    if (s.visibility === 'hidden' || s.opacity === '0') continue;
+    // Colour swatches are their colour; there is no text to read on them.
+    if (!el.textContent.trim() && !el.querySelector('svg')) continue;
+    const bg = behind(el);
+    const fg = over(rgba(s.color), bg);
+    const [hi, lo] = [lum(fg), lum(bg)].sort((a, b) => b - a);
+    const ratio = (hi + 0.05) / (lo + 0.05);
+    if (ratio < 3) {
+      out.push(\`\${(el.getAttribute('title') || el.textContent.trim() || el.className).slice(0, 40)} [\${el.className}] \${ratio.toFixed(2)}:1 fg=\${fg.slice(0, 3)} bg=\${bg.slice(0, 3)}\`);
+    }
+  }
+  return out;
+})()`;
+
+/**
+ * Buttons must stay legible on every platform in both schemes, at rest and
+ * under the pointer: Windows dark once drew the accent with dark text on it.
+ */
+async function contrastScan(cdp: Cdp) {
+  await cdp.send("DOM.enable");
+  await cdp.send("CSS.enable");
+  /*
+   * Hover every button at once and return the undo. The undo must reuse these
+   * node ids: another `DOM.getDocument` renumbers the tree, and the hover
+   * forced through the old ids then can never be cleared.
+   */
+  const forceHover = async () => {
+    const { root } = await cdp.send<{ root: { nodeId: number } }>("DOM.getDocument", { depth: -1 });
+    const { nodeIds } = await cdp.send<{ nodeIds: number[] }>("DOM.querySelectorAll", {
+      nodeId: root.nodeId,
+      selector: "button",
+    });
+    const force = (forcedPseudoClasses: string[]) =>
+      Promise.all(nodeIds.map((nodeId) => cdp.send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses })));
+    await force(["hover"]);
+    return () => force([]);
+  };
+  /** Open one surface, return a closer. */
+  const surfaces: { name: string; open: () => Promise<() => Promise<void>> }[] = [
+    { name: "window", open: async () => async () => {} },
+    {
+      name: "selected tool",
+      open: async () => {
+        await cdp.eval(`document.querySelector('.tools button[title^="Rectangle"]')?.click()`);
+        await sleep(150);
+        return async () => {
+          await cdp.eval(`document.querySelector('.tools button[title^="Select ("]')?.click()`);
+          await sleep(100);
+        };
+      },
+    },
+    {
+      name: "reading menu",
+      open: async () => {
+        await cdp.eval(`document.querySelector('button[title^="Reading colours"]')?.click()`);
+        await sleep(150);
+        return async () => {
+          await cdp.eval("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
+          await sleep(100);
+        };
+      },
+    },
+    {
+      name: "settings dialog",
+      open: async () => {
+        await cdp.eval("document.querySelector('[title=\"Command Palette (⌘K)\"]').click()");
+        await sleep(150);
+        await cdp.eval(`(() => {
+          const input = document.querySelector('.palette .search-input');
+          input.value = 'Settings';
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        })()`);
+        await sleep(150);
+        await cdp.eval("[...document.querySelectorAll('.palette .cmd-item')].find((b) => b.textContent.includes('Settings')).click()");
+        await sleep(250);
+        return async () => {
+          await cdp.eval("[...document.querySelectorAll('.dialog button')].find((b) => b.textContent.trim() === 'Done')?.click()");
+          await sleep(150);
+        };
+      },
+    },
+  ];
+
+  const was = await cdp.eval<string>("document.documentElement.dataset.platform");
+  const failing: string[] = [];
+  for (const scheme of ["light", "dark"]) {
+    await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: scheme }] });
+    for (const platform of ["mac", "win", "gnome", "kde"]) {
+      await cdp.eval(`document.documentElement.dataset.platform = ${JSON.stringify(platform)}`);
+      await sleep(100);
+      for (const surface of surfaces) {
+        const close = await surface.open();
+        for (const hover of [false, true]) {
+          const unhover = hover ? await forceHover() : undefined;
+          // Windows buttons ease their background in; measure where it lands.
+          await sleep(250);
+          const low = await cdp.eval<string[]>(LOW_CONTRAST_BUTTONS);
+          await unhover?.();
+          for (const item of low) failing.push(`${platform}/${scheme}/${surface.name}${hover ? "/hover" : ""}: ${item}`);
+        }
+        await close();
+      }
+    }
+  }
+  await cdp.send("Emulation.setEmulatedMedia", { features: [] });
+  await cdp.eval(`document.documentElement.dataset.platform = ${JSON.stringify(was)}`);
+  await sleep(100);
+
+  check("buttons keep 3:1 contrast on every platform, light and dark, at rest and hovered", () =>
+    assert.deepEqual(failing, []),
+  );
 }
 
 // --------------------------------------------------------------------- main
@@ -1817,6 +1976,55 @@ async function main() {
       assert.ok(menuIds.includes("view.labels"), "no view.labels item was created"),
     );
 
+    // ------------------------------------------------------------- presenting
+    console.log("\npresentation");
+
+    const laserDot = () => cdp.eval<boolean>("!!document.querySelector('.laser-dot')");
+    const moveMouse = (x: number) =>
+      cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y: 400 });
+    await cdp.eval(`document.querySelector('button[title^="Presentation mode"]').click()`);
+    await waitFor("the presentation bar", () => cdp.eval<boolean>("!!document.querySelector('.presentation-bar')"), Boolean);
+    await cdp.eval(`document.querySelector('.presentation-bar [title="Toggle Laser Pointer"]').click()`);
+    await moveMouse(600);
+    await sleep(100);
+    const laserWhilePresenting = await laserDot();
+    check("the laser pointer follows the mouse while presenting", () => assert.ok(laserWhilePresenting));
+
+    // Escape, then the mouse moves on: the dot used to stay, and keep following.
+    await cdp.eval("window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
+    await sleep(150);
+    await moveMouse(650);
+    await sleep(100);
+    const laserAfterExit = await laserDot();
+    check("leaving the presentation puts the laser pointer away", () => assert.ok(!laserAfterExit, "the laser dot is still on screen"));
+
+    await cdp.eval(`document.querySelector('button[title^="Presentation mode"]').click()`);
+    await sleep(150);
+    await moveMouse(700);
+    await sleep(100);
+    const relaunched = await cdp.eval<{ active: boolean; dot: boolean }>(`({
+      active: !!document.querySelector('.presentation-bar [title="Toggle Laser Pointer"].active'),
+      dot: !!document.querySelector('.laser-dot'),
+    })`);
+    check("the next presentation starts with the laser off", () => assert.deepEqual(relaunched, { active: false, dot: false }));
+    await cdp.eval(`document.querySelector('.presentation-bar [title="Exit Presentation"]').click()`);
+    await sleep(150);
+
+    // --------------------------------------------------------------- startup
+    /*
+     * The window starts hidden and the frontend shows it once styled, so it
+     * never flashes the webview's white; and the page paints in the system
+     * scheme before app.css has loaded.
+     */
+    const shown = await cdp.eval<string[]>("window.__ipcCalls");
+    check("the frontend shows the window once it has painted", () => assert.ok(shown.includes("plugin:window|show")));
+    const config = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8"));
+    check("the window starts hidden, so it never flashes white", () => assert.equal(config.app.windows[0].visible, false));
+    const earlyStyle = readFileSync("src/app.html", "utf8");
+    check("app.html paints in the system scheme before the stylesheet", () =>
+      assert.match(earlyStyle, /<style>[\s\S]*background: Canvas[\s\S]*<\/style>[\s\S]*%sveltekit.head%/),
+    );
+
     // ------------------------------------------------- platform + narrow window
     console.log("\nplatform styling and narrow windows");
 
@@ -1849,6 +2057,8 @@ async function main() {
       assert.equal(tokens.mac.control, "28px");
       assert.equal(tokens.win.control, "30px", "Windows controls should be taller");
     });
+
+    await contrastScan(cdp);
 
     // --- narrow window: panels overlay instead of squeezing the viewer
     await cdp.send("Emulation.setDeviceMetricsOverride", {

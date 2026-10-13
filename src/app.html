@@ -5,6 +5,15 @@
     <link rel="icon" href="%sveltekit.assets%/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>VrushPDF</title>
+    <!--
+      Paint in the system scheme from the very first frame: app.css arrives with
+      the scripts, and until then a webview is white, which flashed in dark mode.
+      Not under glass, where the page must stay transparent over the window.
+    -->
+    <style>
+      :root { color-scheme: light dark; }
+      :root:not([data-glass]) { background: Canvas; }
+    </style>
     <script>
       /*
        * Tag the platform before the first paint, so the per-platform tokens in

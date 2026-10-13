@@ -216,6 +216,18 @@
     view.zoomBy(event.deltaY < 0 ? 1 : -1);
   }
 
+  /*
+   * The laser belongs to the presentation. Presenting ends from several places
+   * (Escape, the bar, the toolbar, the shortcut, the palette), so it is put
+   * away here, whichever one it was, rather than at each of them.
+   */
+  $effect(() => {
+    if (!viewer.presentationMode) {
+      laserActive = false;
+      laserPos = null;
+    }
+  });
+
   function onMouseMove(event: MouseEvent) {
     if (laserActive) {
       laserPos = { x: event.clientX, y: event.clientY };
@@ -268,7 +280,7 @@
     {/each}
   </div>
 
-  {#if laserActive && laserPos}
+  {#if viewer.presentationMode && laserActive && laserPos}
     <div
       class="laser-dot"
       style:left="{laserPos.x}px"

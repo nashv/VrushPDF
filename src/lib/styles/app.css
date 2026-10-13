@@ -413,6 +413,21 @@ select {
   filter: brightness(1.08);
 }
 
+/*
+ * `.btn:hover` and `.btn:active` outrank `.btn.primary`, so a filled button
+ * lost its accent under the pointer but kept its accent text: black on Windows
+ * dark, so dark text on a dark tint. Filled buttons shade their own fill.
+ */
+.btn:is(.primary, .selected):hover:not(:disabled) {
+  background: var(--accent);
+  filter: brightness(1.08);
+}
+
+.btn:is(.primary, .selected):active:not(:disabled) {
+  background: var(--accent);
+  filter: brightness(0.92);
+}
+
 .btn.danger {
   color: var(--danger);
 }
@@ -718,16 +733,26 @@ textarea.field {
   background: var(--bg-hover);
 }
 
-:root[data-platform="kde"] .btn.primary {
+/*
+ * Breeze marks default and checked buttons with an accent frame and tint, not
+ * a fill: white on its light blue is only 2.5:1. The text stays the text.
+ */
+:root[data-platform="kde"] .btn.primary,
+:root[data-platform="kde"] .btn.selected,
+:root[data-platform="kde"] .btn:is(.primary, .selected):hover:not(:disabled),
+:root[data-platform="kde"] .btn:is(.primary, .selected):active:not(:disabled) {
   border-color: var(--accent);
-  background: var(--accent);
-  color: var(--accent-text);
+  background: var(--accent-soft);
+  color: var(--text);
+  filter: none;
 }
 
-:root[data-platform="kde"] .btn.selected {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--accent-text);
+:root[data-platform="kde"] .btn.primary {
+  font-weight: 600;
+}
+
+:root[data-platform="kde"] .btn:is(.primary, .selected):hover:not(:disabled) {
+  background: var(--bg-active);
 }
 
 :root[data-platform="kde"] .btn.square {
